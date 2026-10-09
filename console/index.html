@@ -2,57 +2,71 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#f6f8fb">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#f4f6fa" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e1420" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="SWRemote">
+<meta name="description" content="SWRemote by SWInfoSystems — control your Windows PCs from any device.">
 <title>SWRemote — by SWInfoSystems</title>
 <link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<!-- ======= SCREEN: server login ======= -->
-<section id="scr-login" class="screen active">
+<!-- ======= SCREEN: server (rarely seen — address is built in) ======= -->
+<section id="scr-login" class="screen">
   <div class="card login-card">
     <div class="logo"><span class="logo-mark">S</span></div>
     <h1>SWRemote</h1>
     <p class="sub">Remote desktop by SWInfoSystems</p>
-    <label>Relay server</label>
+    <label for="server-url">Relay server</label>
     <input id="server-url" type="url" placeholder="https://your-relay.onrender.com" autocomplete="off">
     <button id="btn-save-server" class="primary">Connect</button>
-    <p class="hint">Your devices appear after their Windows agent connects to this server.</p>
+    <p class="hint">Usually you never see this screen — the server address is built into the app.</p>
   </div>
 </section>
 
 <!-- ======= SCREEN: device list ======= -->
 <section id="scr-devices" class="screen">
   <header class="topbar">
-    <div class="brand"><span class="logo-mark sm">S</span> SWRemote</div>
-    <button id="btn-change-server" class="ghost">Server</button>
+    <div class="brand"><span class="logo-mark sm">S</span><span>SWRemote</span></div>
+    <div class="top-actions">
+      <button id="btn-install" class="ghost hidden">⤓ Install app</button>
+      <button id="btn-change-server" class="ghost">Server</button>
+    </div>
   </header>
   <main class="wrap">
-    <div class="row-between">
-      <h2>My devices</h2>
-      <button id="btn-refresh" class="ghost">↻ Refresh</button>
+    <div class="page-head">
+      <div>
+        <h2>My devices</h2>
+        <p class="page-sub" id="dev-count"></p>
+      </div>
+      <button id="btn-refresh" class="icon-btn" title="Refresh">↻</button>
     </div>
     <div id="device-list" class="dev-grid"></div>
-    <p class="hint">On the Windows PC just open <b>SWRemote-Agent.exe</b> — it shows an ID and PIN. Tap <b>Connect</b> on the device here and enter its PIN.</p>
+    <div class="how-card">
+      <h3>How it works</h3>
+      <ol>
+        <li><b>On the PC:</b> open <b>SWRemote-Agent.exe</b> — a popup shows its ID and PIN.</li>
+        <li><b>Here:</b> tap <b>Connect</b> on that PC and enter its PIN.</li>
+        <li><b>Share:</b> use <b>Share</b> on any PC to copy an invite link for someone else.</li>
+      </ol>
+    </div>
   </main>
+  <div id="toast" class="toast"></div>
 </section>
 
 <!-- ======= SCREEN: remote session ======= -->
 <section id="scr-session" class="screen">
   <header class="topbar session-bar">
-    <button id="btn-disconnect" class="ghost">✕</button>
+    <button id="btn-disconnect" class="icon-btn" title="Disconnect">✕</button>
     <div class="sess-title"><span id="sess-dot" class="dot"></span><span id="sess-name">—</span><span id="sess-fps" class="fps-pill"></span></div>
-    <div class="sess-actions">
-      <button id="btn-full" class="ghost" title="Fullscreen">⛶</button>
-      <button id="btn-quality" class="ghost" title="Quality">⚙</button>
-      <button id="btn-chat" class="ghost" title="Chat">💬</button>
-      <button id="btn-files" class="ghost" title="Send file">📁</button>
-      <button id="btn-kbd" class="ghost" title="Keyboard">⌨</button>
-      <button id="btn-lock" class="ghost" title="Lock PC">🔒</button>
-    </div>
+    <div class="sess-spacer"></div>
   </header>
   <div class="stage">
     <canvas id="screen"></canvas>
@@ -65,40 +79,49 @@
     <button data-key="right">▶</button><button data-key="delete">Del</button>
     <button data-key="enter">Enter</button>
   </div>
+  <nav class="toolbar">
+    <button id="btn-kbd" title="Keyboard"><span class="t-ico">⌨</span><span class="t-label">Keys</span></button>
+    <button id="btn-chat" title="Chat"><span class="t-ico">💬</span><span class="t-label">Chat</span></button>
+    <button id="btn-files" title="Send file"><span class="t-ico">📁</span><span class="t-label">Files</span></button>
+    <button id="btn-quality" title="Quality"><span class="t-ico">⚙</span><span class="t-label">Quality</span></button>
+    <button id="btn-full" title="Fullscreen"><span class="t-ico">⛶</span><span class="t-label">Full</span></button>
+    <button id="btn-lock" title="Lock PC"><span class="t-ico">🔒</span><span class="t-label">Lock</span></button>
+  </nav>
   <input id="kbd-proxy" class="kbd-proxy" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
 
-  <!-- chat drawer -->
-  <aside id="chat-panel" class="drawer hidden">
-    <div class="drawer-head"><b>Chat with PC</b><button class="ghost" data-close="chat-panel">✕</button></div>
+  <!-- chat sheet -->
+  <aside id="chat-panel" class="sheet hidden">
+    <div class="sheet-head"><div class="sheet-grip"></div><b>Chat with this PC</b><button class="icon-btn" data-close="chat-panel">✕</button></div>
     <div id="chat-log" class="chat-log"></div>
     <div class="chat-input"><input id="chat-text" placeholder="Type a message…" maxlength="500"><button id="chat-send" class="primary">Send</button></div>
   </aside>
 
-  <!-- files drawer -->
-  <aside id="files-panel" class="drawer hidden">
-    <div class="drawer-head"><b>Send file to PC</b><button class="ghost" data-close="files-panel">✕</button></div>
+  <!-- files sheet -->
+  <aside id="files-panel" class="sheet hidden">
+    <div class="sheet-head"><div class="sheet-grip"></div><b>Send file to this PC</b><button class="icon-btn" data-close="files-panel">✕</button></div>
     <div class="pad">
-      <input id="file-input" type="file">
+      <label class="file-drop" for="file-input">📁 Choose a file…<input id="file-input" type="file" hidden></label>
       <button id="btn-send-file" class="primary" disabled>Send</button>
-      <p class="hint">Received files land in <b>Downloads\SWRemote</b> on the PC. Files sent from the PC side aren't downloadable in this version — ask the PC user to share them another way.</p>
+      <p class="hint">Received files land in <b>Downloads\SWRemote</b> on the PC.</p>
       <div id="file-progress"></div>
     </div>
   </aside>
 
   <!-- quality popover -->
   <div id="quality-pop" class="popover hidden">
-    <label>Quality</label>
+    <label for="q-quality">Quality</label>
     <select id="q-quality"><option value="30">Low — fast</option><option value="55" selected>Medium</option><option value="75">High — sharp</option></select>
-    <label>Size</label>
+    <label for="q-scale">Size</label>
     <select id="q-scale"><option value="0.5">Small</option><option value="0.75" selected>Normal</option><option value="1">Full</option></select>
   </div>
+  <div id="toast" class="toast"></div>
 </section>
 
 <!-- PIN modal -->
 <div id="pin-modal" class="modal hidden">
   <div class="modal-card">
-    <h3 id="pin-title">Enter PIN</h3>
-    <input id="pin-input" type="password" inputmode="numeric" maxlength="32" placeholder="Device PIN" autocomplete="off">
+    <div class="pin-dev"><span class="logo-mark sm">S</span><div><b id="pin-title">Enter PIN</b><div class="pin-id" id="pin-devid"></div></div></div>
+    <input id="pin-input" type="password" inputmode="numeric" maxlength="32" placeholder="••••••" autocomplete="off">
     <div class="modal-actions">
       <button id="pin-cancel" class="ghost">Cancel</button>
       <button id="pin-ok" class="primary">Connect</button>

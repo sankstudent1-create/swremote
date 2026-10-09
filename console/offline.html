@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SWRemote — offline</title>
+<style>
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+    background:#f4f6fa;color:#16233a;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;}
+  .c{text-align:center;padding:30px;}
+  .m{width:64px;height:64px;border-radius:20px;background:linear-gradient(135deg,#2f7de1,#5aa2f5);
+    color:#fff;font-weight:800;font-size:32px;display:inline-flex;align-items:center;justify-content:center;}
+  h1{font-size:22px;margin:16px 0 6px;}
+  p{color:#8494ab;font-size:14px;margin:0 0 18px;}
+  button{background:linear-gradient(135deg,#2f7de1,#5aa2f5);color:#fff;border:none;border-radius:12px;
+    padding:12px 26px;font-size:15px;font-weight:700;cursor:pointer;}
+</style>
+</head>
+<body>
+<div class="c">
+  <div class="m">S</div>
+  <h1>You're offline</h1>
+  <p>SWRemote needs an internet connection to reach your PCs.</p>
+  <button onclick="location.reload()">Try again</button>
+</div>
+</body>
+</html>

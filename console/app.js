@@ -29,15 +29,7 @@ function initServer() {
   }
   $("server-url").value = saved;
   show("scr-devices");
-  loadDevices().then(() => {
-    // direct link support: ?id=123456789 opens the PIN box for that device
-    const want = new URLSearchParams(location.search).get("id");
-    if (want) {
-      const card = [...document.querySelectorAll(".dev-card")].find((c) =>
-        c.querySelector(".dev-id").textContent.trim() === want.trim());
-      if (card) { const btn = card.querySelector("button"); if (btn && !btn.disabled) btn.click(); }
-    }
-  });
+  loadDevices(); // also handles ?id= direct invite links
 }
 $("btn-save-server").onclick = () => {
   const v = $("server-url").value.trim().replace(/\/$/, "");
@@ -48,30 +40,74 @@ $("btn-save-server").onclick = () => {
 $("btn-change-server").onclick = () => { show("scr-login"); };
 
 /* ---------- devices ---------- */
+function relTime(ts) {
+  if (!ts) return "never";
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 10) return "just now";
+  if (s < 60) return s + "s ago";
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + "m ago";
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + "h ago";
+  return Math.floor(h / 24) + "d ago";
+}
+let toastTimer = null;
+function toast(msg) {
+  document.querySelectorAll(".toast").forEach((el) => {
+    el.textContent = msg; el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
+  });
+}
 async function loadDevices() {
   const list = $("device-list");
   list.innerHTML = '<div class="empty">Loading…</div>';
   try {
     const r = await fetch(serverBase() + "/api/devices");
     const j = await r.json();
-    if (!j.devices.length) { list.innerHTML = '<div class="empty">No devices yet.<br>Run the agent on a Windows PC first.</div>'; return; }
+    const online = j.devices.filter((d) => d.online).length;
+    $("dev-count").textContent = j.devices.length
+      ? `${online} of ${j.devices.length} online` : "";
+    if (!j.devices.length) { list.innerHTML = '<div class="empty">No devices yet.<br>Open <b>SWRemote-Agent.exe</b> on a Windows PC first.</div>'; return; }
     list.innerHTML = "";
     j.devices.forEach((d) => {
       const card = document.createElement("div");
-      card.className = "dev-card";
+      card.className = "dev-card" + (d.online ? "" : " offline");
       card.innerHTML = `
-        <div class="dev-name">${esc(d.name)}</div>
-        <div class="dev-id">${esc(d.id)}</div>
-        <div class="dev-row">
-          <span class="dev-status"><span class="dot ${d.online ? "on" : "off"}"></span>${d.online ? "Online" : "Offline"}</span>
-          <button class="ghost" ${d.online ? "" : "disabled"}>Connect</button>
+        <div class="dev-top">
+          <div class="dev-ico">💻</div>
+          <div><div class="dev-name">${esc(d.name)}</div><div class="dev-id">${esc(d.id)}</div></div>
+        </div>
+        <div class="dev-meta">
+          <span class="pill ${d.online ? "on" : "off"}"><span class="dot ${d.online ? "on" : "off"}"></span>${d.online ? "Online" : "Offline"}</span>
+          <span class="dev-seen">${d.online ? "connected now" : "seen " + relTime(d.lastSeen)}</span>
+        </div>
+        <div class="dev-actions">
+          <button class="ghost btn-share">⤴ Share</button>
+          <button class="primary btn-connect" ${d.online ? "" : "disabled"}>Connect</button>
         </div>`;
-      if (d.online) card.querySelector("button").onclick = () => askPin(d);
+      if (d.online) card.querySelector(".btn-connect").onclick = () => askPin(d);
+      card.querySelector(".btn-share").onclick = () => shareDevice(d);
       list.appendChild(card);
     });
+    // direct link support: ?id=123456789 opens the PIN box for that device
+    const want = new URLSearchParams(location.search).get("id");
+    if (want) {
+      const target = j.devices.find((d) => d.id === want.trim());
+      if (target && target.online) askPin(target);
+      else if (target) toast("That PC is offline right now.");
+    }
   } catch (e) {
-    list.innerHTML = `<div class="empty">Cannot reach server.<br>${esc(e.message)}</div>`;
+    $("dev-count").textContent = "";
+    list.innerHTML = `<div class="empty">Cannot reach the server.<br>${esc(e.message)}</div>`;
   }
+}
+function shareDevice(d) {
+  const link = location.origin + location.pathname + "?id=" + encodeURIComponent(d.id);
+  const done = () => toast("Invite link copied — send it to them.");
+  if (navigator.clipboard && navigator.clipboard.writeText)
+    navigator.clipboard.writeText(link).then(done).catch(() => prompt("Copy this invite link:", link));
+  else prompt("Copy this invite link:", link);
 }
 $("btn-refresh").onclick = loadDevices;
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
@@ -80,10 +116,11 @@ function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&am
 let pinTarget = null;
 function askPin(d) {
   pinTarget = d;
-  $("pin-title").textContent = `PIN for ${d.name}`;
+  $("pin-title").textContent = d.name;
+  $("pin-devid").textContent = "ID " + d.id;
   $("pin-input").value = "";
   $("pin-modal").classList.remove("hidden");
-  setTimeout(() => $("pin-input").focus(), 50);
+  setTimeout(() => $("pin-input").focus(), 80);
 }
 $("pin-cancel").onclick = () => $("pin-modal").classList.add("hidden");
 $("pin-ok").onclick = () => {
@@ -283,7 +320,7 @@ $("btn-chat").onclick = () => toggleDrawer("chat-panel");
 document.querySelectorAll("[data-close]").forEach((b) => b.onclick = () => $(b.dataset.close).classList.add("hidden"));
 function toggleDrawer(id) {
   const el = $(id), wasHidden = el.classList.contains("hidden");
-  document.querySelectorAll(".drawer").forEach((d) => d.classList.add("hidden"));
+  document.querySelectorAll(".sheet").forEach((d) => d.classList.add("hidden"));
   if (wasHidden) el.classList.remove("hidden");
 }
 function addChat(text, me) {
@@ -366,4 +403,17 @@ $("btn-lock").onclick = () => { if (ws && confirm("Lock the remote PC now?")) ws
 
 /* ---------- PWA ---------- */
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+let deferredInstall = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstall = e;
+  $("btn-install").classList.remove("hidden");
+});
+$("btn-install").onclick = async () => {
+  if (!deferredInstall) return;
+  deferredInstall.prompt();
+  await deferredInstall.userChoice.catch(() => {});
+  deferredInstall = null;
+  $("btn-install").classList.add("hidden");
+};
 initServer();
