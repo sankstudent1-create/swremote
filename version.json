@@ -1,5 +1,5 @@
 {
-  "version": "3.3.1",
-  "notes": "Hotfix: fixes a startup crash (undefined renderDeviceList killed the whole console script) and a Tailwind config syntax error; Tailwind now compiled to a static 15KB file instead of the CDN.",
+  "version": "4.0.0",
+  "notes": "New agent window (v4): connection status pill in the header, four refined cards, fixed card overlaps. Web console keeps the Stitch design system with designer refinements.",
   "url": "https://swremote-relay.onrender.com/download/agent"
 }

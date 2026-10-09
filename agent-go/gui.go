@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -50,6 +51,7 @@ var (
 	pCreateSolidBrush = g32.NewProc("CreateSolidBrush")
 	pCreatePen        = g32.NewProc("CreatePen")
 	pRoundRect        = g32.NewProc("RoundRect")
+	pEllipse          = g32.NewProc("Ellipse")
 	pCreateCompatibleDC = g32.NewProc("CreateCompatibleDC")
 	pDeleteDC         = g32.NewProc("DeleteDC")
 	pBitBlt           = g32.NewProc("BitBlt")
@@ -194,7 +196,9 @@ type guiState struct {
 	mu         sync.Mutex
 	statusText string
 	statusOK   bool // green vs gray dot
-	progress   int  // -1 = hidden
+	pillText   string
+	pillOK     bool
+	progress   int // -1 = hidden
 	updBtnText string
 	updBtnOn   bool
 	viewers    int
@@ -208,6 +212,8 @@ var (
 	gWhiteBr uintptr
 	gCardBr  uintptr
 	gCardPen uintptr
+	gGreenBr uintptr
+	gGrayBr  uintptr
 	gFonts   = map[string]uintptr{}
 	gLogoBmp uintptr
 )
@@ -317,12 +323,54 @@ func guiSetUpdateBtn(text string, enabled bool) {
 func applyStatus() {
 	gState.mu.Lock()
 	t := gState.statusText
+	// derive the header pill from connection-related statuses; transient
+	// messages (copied etc.) leave the last connection state in place
+	switch {
+	case strings.HasPrefix(t, "Online"), strings.HasPrefix(t, "Viewer connected"):
+		gState.pillText, gState.pillOK = "Online", true
+	case strings.HasPrefix(t, "Connecting"), strings.HasPrefix(t, "Connection lost"):
+		gState.pillText, gState.pillOK = "Connecting…", false
+	}
 	gState.mu.Unlock()
 	setText(ctlStatus, t)
-	// repaint the dot so WM_CTLCOLORSTATIC recolors it
+	// repaint the dot so WM_CTLCOLORSTATIC recolors it, and repaint the header pill
 	if h, ok := gCtl[ctlDot]; ok {
 		pInvalidateRect.Call(h, 0, 1)
 	}
+	pInvalidateRect.Call(gHWND, 0, 1)
+}
+
+// drawPill paints the connection status pill in the header (v4 design)
+func drawPill(hdc uintptr) {
+	gState.mu.Lock()
+	text, ok := gState.pillText, gState.pillOK
+	gState.mu.Unlock()
+	if text == "" {
+		text, ok = "Starting…", false
+	}
+	// white pill
+	oldPen, _, _ := pSelectObject.Call(hdc, gCardPen)
+	oldBr, _, _ := pSelectObject.Call(hdc, gWhiteBr)
+	pRoundRect.Call(hdc, 288, 32, 418, 64, 32, 32)
+	pSelectObject.Call(hdc, oldPen)
+	pSelectObject.Call(hdc, oldBr)
+	// dot
+	dotBr := gGrayBr
+	if ok {
+		dotBr = gGreenBr
+	}
+	oldPen2, _, _ := pSelectObject.Call(hdc, gCardPen)
+	oldBr2, _, _ := pSelectObject.Call(hdc, dotBr)
+	pEllipse.Call(hdc, 302, 42, 314, 54)
+	pSelectObject.Call(hdc, oldPen2)
+	pSelectObject.Call(hdc, oldBr2)
+	// label
+	pSetBkMode.Call(hdc, TRANSPARENT)
+	pSetTextColor.Call(hdc, colorRef(0x1f, 0x5f, 0xc0))
+	oldF, _, _ := pSelectObject.Call(hdc, gFonts["norm"])
+	var rc = [4]int32{320, 36, 412, 60}
+	pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16(text))), 0xFFFFFFFF /*cchText=-1, null-terminated*/, uintptr(unsafe.Pointer(&rc)), 0)
+	pSelectObject.Call(hdc, oldF)
 }
 
 var grayLabels = map[int]bool{ctlIDLabel: true, ctlPINLabel: true, ctlLinkLbl: true, ctlClaimLbl: true, ctlVer: true, ctlMeta: true}
@@ -367,9 +415,10 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		// section cards (v4 design)
 		oldPen, _, _ := pSelectObject.Call(hdc, gCardPen)
 		oldBr, _, _ := pSelectObject.Call(hdc, gCardBr)
-		pRoundRect.Call(hdc, 12, 112, 418, 322, 28, 28) // ID + PIN + status
-		pRoundRect.Call(hdc, 12, 312, 418, 384, 28, 28) // invite link
-		pRoundRect.Call(hdc, 12, 380, 418, 452, 28, 28) // link this device
+		pRoundRect.Call(hdc, 12, 120, 418, 228, 28, 28)  // your ID
+		pRoundRect.Call(hdc, 12, 240, 418, 356, 28, 28)  // PIN & status
+		pRoundRect.Call(hdc, 12, 368, 418, 440, 28, 28)  // invite link
+		pRoundRect.Call(hdc, 12, 452, 418, 524, 28, 28)  // link this device
 		pSelectObject.Call(hdc, oldPen)
 		pSelectObject.Call(hdc, oldBr)
 		// header gradient
@@ -390,6 +439,7 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16("by SWInfoSystems"))), 16, uintptr(unsafe.Pointer(&rc)), 0)
 		pSelectObject.Call(hdc, old)
 		drawLogo(hdc)
+		drawPill(hdc)
 		pEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 		return 0
 	case WM_APP_STATUS:
@@ -599,6 +649,8 @@ func runGUI() {
 	gWhiteBr, _, _ = pCreateSolidBrush.Call(colorRef(255, 255, 255))
 	gCardBr, _, _ = pCreateSolidBrush.Call(colorRef(0xf7, 0xfa, 0xfd))
 	gCardPen, _, _ = pCreatePen.Call(0 /*PS_SOLID*/, 1, colorRef(0xe3, 0xea, 0xf3))
+	gGreenBr, _, _ = pCreateSolidBrush.Call(colorRef(0x22, 0xa3, 0x5f))
+	gGrayBr, _, _ = pCreateSolidBrush.Call(colorRef(0x9a, 0xa7, 0xbb))
 	gFonts["title"] = mkFont("Segoe UI", 24, true)
 	gFonts["sub"] = mkFont("Segoe UI", 11, false)
 	gFonts["lbl"] = mkFont("Segoe UI", 10, false)
@@ -633,29 +685,29 @@ func runGUI() {
 	}
 	gHWND = hwnd
 
-	// controls (client coords)
-	mkCtl("STATIC", "YOUR ID", 0, 24, 122, 200, 20, ctlIDLabel, gFonts["lbl"])
-	mkCtl("STATIC", cfg.DeviceID, SS_LEFT, 24, 144, 272, 44, ctlIDValue, gFonts["id"])
-	mkCtl("BUTTON", "Copy ID", BS_PUSHBUTTON, 304, 148, 100, 34, ctlCopyID, gFonts["norm"])
-	mkCtl("STATIC", "PIN", 0, 200, 200, 60, 20, ctlPINLabel, gFonts["lbl"])
-	mkCtl("STATIC", cfg.PIN, SS_LEFT, 24, 222, 220, 34, ctlPINValue, gFonts["pin"])
-	mkCtl("BUTTON", "New PIN", BS_PUSHBUTTON, 300, 220, 104, 32, ctlNewPIN, gFonts["norm"])
-	mkCtl("STATIC", "●", SS_LEFT, 24, 268, 22, 24, ctlDot, gFonts["norm"])
-	mkCtl("STATIC", "Starting…", SS_LEFT, 50, 270, 354, 22, ctlStatus, gFonts["norm"])
-	mkCtl("STATIC", "no viewers   •   just started", SS_LEFT, 24, 294, 380, 20, ctlMeta, gFonts["small"])
-	mkCtl("STATIC", "INVITE LINK", 0, 320, 200, 200, 20, ctlLinkLbl, gFonts["lbl"])
-	mkCtl("EDIT", inviteLink(), WS_BORDER|ES_READONLY|ES_AUTOHSCROLL, 24, 342, 290, 30, ctlLinkEdit, gFonts["norm"])
-	mkCtl("BUTTON", "Copy", BS_PUSHBUTTON, 322, 340, 82, 34, ctlCopy, gFonts["norm"])
-	mkCtl("STATIC", "LINK THIS DEVICE", 0, 24, 388, 220, 20, ctlClaimLbl, gFonts["lbl"])
-	mkCtl("STATIC", cfg.ClaimCode, SS_LEFT, 24, 410, 220, 34, ctlClaimVal, gFonts["pin"])
-	mkCtl("BUTTON", "Copy code", BS_PUSHBUTTON, 300, 408, 104, 32, ctlCopyClaim, gFonts["norm"])
-	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON, 24, 458, 380, 40, ctlUpdate, gFonts["norm"])
-	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 24, 512, 380, 24, ctlAutoRun, gFonts["norm"])
-	mkCtl("msctls_progress32", "", 0, 24, 544, 380, 18, ctlProg, 0)
+	// controls (client coords) — v4 layout: status pill header + 4 cards
+	mkCtl("STATIC", "YOUR ID", 0, 28, 132, 220, 20, ctlIDLabel, gFonts["lbl"])
+	mkCtl("STATIC", cfg.DeviceID, SS_LEFT, 28, 154, 240, 44, ctlIDValue, gFonts["id"])
+	mkCtl("BUTTON", "Copy ID", BS_PUSHBUTTON, 296, 158, 96, 34, ctlCopyID, gFonts["norm"])
+	mkCtl("STATIC", "PIN", 0, 28, 252, 200, 20, ctlPINLabel, gFonts["lbl"])
+	mkCtl("STATIC", cfg.PIN, SS_LEFT, 28, 274, 200, 34, ctlPINValue, gFonts["pin"])
+	mkCtl("BUTTON", "New PIN", BS_PUSHBUTTON, 292, 272, 100, 32, ctlNewPIN, gFonts["norm"])
+	mkCtl("STATIC", "●", SS_LEFT, 28, 314, 20, 20, ctlDot, gFonts["norm"])
+	mkCtl("STATIC", "Starting…", SS_LEFT, 54, 314, 340, 20, ctlStatus, gFonts["norm"])
+	mkCtl("STATIC", "no viewers   •   just started", SS_LEFT, 28, 336, 364, 18, ctlMeta, gFonts["small"])
+	mkCtl("STATIC", "INVITE LINK", 0, 28, 380, 200, 20, ctlLinkLbl, gFonts["lbl"])
+	mkCtl("EDIT", inviteLink(), WS_BORDER|ES_READONLY|ES_AUTOHSCROLL, 28, 402, 258, 30, ctlLinkEdit, gFonts["norm"])
+	mkCtl("BUTTON", "Copy", BS_PUSHBUTTON, 296, 400, 96, 34, ctlCopy, gFonts["norm"])
+	mkCtl("STATIC", "LINK THIS DEVICE", 0, 28, 464, 220, 20, ctlClaimLbl, gFonts["lbl"])
+	mkCtl("STATIC", cfg.ClaimCode, SS_LEFT, 28, 486, 200, 34, ctlClaimVal, gFonts["pin"])
+	mkCtl("BUTTON", "Copy code", BS_PUSHBUTTON, 292, 484, 100, 32, ctlCopyClaim, gFonts["norm"])
+	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON, 28, 534, 374, 38, ctlUpdate, gFonts["norm"])
+	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 28, 582, 374, 22, ctlAutoRun, gFonts["norm"])
+	mkCtl("msctls_progress32", "", 0, 28, 610, 374, 16, ctlProg, 0)
 	pSendMessageW.Call(gCtl[ctlProg], PBM_SETRANGE32, 0, 100)
 	pShowWindow.Call(gCtl[ctlProg], 0)
-	mkCtl("BUTTON", "Quit", BS_PUSHBUTTON, 24, 580, 380, 38, ctlQuit, gFonts["norm"])
-	mkCtl("STATIC", "v"+appVersion+"   •   swremote-relay.onrender.com", SS_LEFT, 24, 632, 380, 18, ctlVer, gFonts["small"])
+	mkCtl("BUTTON", "Quit", BS_PUSHBUTTON, 28, 634, 374, 36, ctlQuit, gFonts["norm"])
+	mkCtl("STATIC", "v"+appVersion+"   •   swremote-relay.onrender.com", SS_LEFT, 28, 678, 374, 16, ctlVer, gFonts["small"])
 
 	// gray labels are colored via WM_CTLCOLORSTATIC (grayLabels set)
 	if getAutoRun() {

@@ -118,13 +118,27 @@
 <section id="scr-auth" class="hidden min-h-screen grid place-items-center p-5 relative overflow-hidden">
   <div class="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-primary-fixed opacity-40 blur-3xl pointer-events-none"></div>
   <div class="absolute -bottom-32 -left-32 w-96 h-96 rounded-full bg-tertiary-fixed opacity-30 blur-3xl pointer-events-none"></div>
-  <div class="relative w-full max-w-md bg-surface-container-lowest rounded-2xl shadow-xl p-8">
-    <div class="flex items-center gap-3 mb-6">
-      <img src="logo.png" alt="SWRemote" class="h-11 w-11 rounded-xl">
-      <div>
-        <div class="font-display font-bold text-xl tracking-tight">SWRemote</div>
-        <div class="text-sm text-on-surface-variant">by SWInfoSystems</div>
+  <div class="relative w-full max-w-3xl bg-surface-container-lowest rounded-3xl shadow-2xl overflow-hidden grid md:grid-cols-2">
+    <div class="hidden md:flex flex-col justify-between p-10 bg-primary text-on-primary relative overflow-hidden">
+      <div class="absolute -bottom-20 -right-20 w-72 h-72 rounded-full bg-primary-container opacity-50 blur-3xl"></div>
+      <div class="relative">
+        <div class="flex items-center gap-3 mb-10">
+          <img src="logo.png" alt="SWRemote" class="h-11 w-11 rounded-xl bg-white p-1">
+          <span class="font-display font-bold text-xl tracking-tight">SWRemote</span>
+        </div>
+        <h2 class="font-display font-bold text-3xl leading-tight mb-4">Your PC,<br>in your pocket.</h2>
+        <p class="text-on-primary/80 text-sm leading-relaxed">Secure remote desktop for your own machines — and a helping hand for everyone else's.</p>
       </div>
+      <div class="relative flex flex-col gap-4 text-sm">
+        <div class="flex items-center gap-3"><span class="material-symbols-outlined">bolt</span><span>One-tap connect to your devices</span></div>
+        <div class="flex items-center gap-3"><span class="material-symbols-outlined">lock</span><span>PIN-secured sessions, always</span></div>
+        <div class="flex items-center gap-3"><span class="material-symbols-outlined">smartphone</span><span>Works from any phone or browser</span></div>
+      </div>
+    </div>
+    <div class="p-8 md:p-10">
+    <div class="flex md:hidden items-center gap-3 mb-6">
+      <img src="logo.png" alt="SWRemote" class="h-10 w-10 rounded-xl">
+      <span class="font-display font-bold text-xl">SWRemote</span>
     </div>
     <h1 id="auth-title" class="font-display font-bold text-2xl mb-1">Welcome back</h1>
     <p id="auth-sub" class="text-sm text-on-surface-variant mb-6">Sign in to see your devices.</p>
@@ -140,6 +154,7 @@
     </p>
     <div class="flex items-center gap-3 my-5"><div class="flex-1 h-px bg-surface-variant"></div><span class="text-xs text-outline">or</span><div class="flex-1 h-px bg-surface-variant"></div></div>
     <button id="auth-skip" class="w-full py-3 rounded-xl bg-surface-container-low hover:bg-surface-container text-on-surface font-semibold transition-colors">Continue as guest</button>
+    </div>
   </div>
 </section>
 
@@ -212,12 +227,12 @@
             <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-6">
               <div>
                 <div class="flex items-center gap-2 mb-1">
-                  <span class="text-[11px] font-bold uppercase tracking-widest text-primary">Infrastructure Hub</span>
+                  <span class="text-[11px] font-bold uppercase tracking-widest text-primary">Your computers</span>
                   <span class="w-1.5 h-1.5 rounded-full bg-outline-variant"></span>
                   <span class="text-[11px] text-on-surface-variant" id="dev-count"></span>
                 </div>
                 <h1 class="font-display font-bold text-4xl tracking-tight">My devices</h1>
-                <p class="text-sm text-on-surface-variant mt-1">Tap a device to open it — no PIN needed for your own machines.</p>
+                <p class="text-sm text-on-surface-variant mt-1">Your PCs, anywhere — tap one to take control.</p>
               </div>
               <button id="btn-claim" class="hidden items-center gap-2 px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-semibold text-sm shadow-sm transition-all hover:-translate-y-0.5">
                 <span class="material-symbols-outlined text-lg">add_circle</span><span>Add device</span>
