@@ -1,5 +1,5 @@
 {
-  "version": "3.3.0",
-  "notes": "Stitch design edition: the web console now wears the Google Stitch 'Calm Horizon' design system — sidebar navigation, telemetry-style device cards with status pills, Material icons, refined auth screens, and dedicated Downloads + Account pages. Same fast relay and session engine underneath.",
+  "version": "3.3.1",
+  "notes": "Hotfix: fixes a startup crash (undefined renderDeviceList killed the whole console script) and a Tailwind config syntax error; Tailwind now compiled to a static 15KB file instead of the CDN.",
   "url": "https://swremote-relay.onrender.com/download/agent"
 }

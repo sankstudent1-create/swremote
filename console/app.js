@@ -49,7 +49,7 @@ function navTo(page) {
   window.scrollTo(0, 0);
 }
 document.querySelectorAll("#side-nav button, #mobile-nav button").forEach((b) => { b.onclick = () => navTo(b.dataset.page); });
-$("dev-search").addEventListener("input", renderDeviceList);
+$("dev-search").addEventListener("input", () => renderDeviceList(lastDevices));
 
 async function loadDownloadMeta() {
   try {
@@ -261,43 +261,63 @@ function toast(msg) {
     toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
   });
 }
+let lastDevices = [];
 async function loadDevices() {
   const list = $("device-list");
-  list.innerHTML = '<div class="skel"><div class="sk-row"><div class="sk sk-ico"></div><div style="flex:1"><div class="sk sk-t1"></div><div class="sk sk-t2"></div></div></div><div class="sk sk-btn"></div></div>'
-    + '<div class="skel"><div class="sk-row"><div class="sk sk-ico"></div><div style="flex:1"><div class="sk sk-t1"></div><div class="sk sk-t2"></div></div></div><div class="sk sk-btn"></div></div>';
+  list.innerHTML = '<div class="bg-surface-container-lowest rounded-2xl p-5 shadow-sm animate-pulse"><div class="h-4 bg-surface-container rounded w-2/3 mb-3"></div><div class="h-4 bg-surface-container rounded w-1/3"></div></div>'
+    + '<div class="bg-surface-container-lowest rounded-2xl p-5 shadow-sm animate-pulse"><div class="h-4 bg-surface-container rounded w-2/3 mb-3"></div><div class="h-4 bg-surface-container rounded w-1/3"></div></div>';
   try {
     const headers = {};
     const token = sbOn() ? await sbToken() : null;
     if (token) headers.Authorization = "Bearer " + token;
     const r = await fetch(serverBase() + "/api/devices", { headers });
     const j = await r.json();
-    const online = j.devices.filter((d) => d.online).length;
-    $("dev-count").textContent = j.devices.length
-      ? `${online} of ${j.devices.length} online` : "";
-    if (!j.devices.length) {
-      list.innerHTML = sbOn() && sbSignedIn()
-        ? `<div class="col-span-full bg-surface-container-lowest rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
-             <span class="material-symbols-outlined text-5xl text-primary mb-3">desktop_access_disabled</span>
-             <div class="font-display font-bold text-xl mb-1">No devices yet.</div>
-             <div class="text-sm text-on-surface-variant">Tap <b>Add device</b> and enter the code from the PC app.</div>
-           </div>`
-        : `<div class="col-span-full bg-surface-container-lowest rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
-             <span class="material-symbols-outlined text-5xl text-primary mb-3">desktop_access_disabled</span>
-             <div class="font-display font-bold text-xl mb-1">No devices yet.</div>
-             <div class="text-sm text-on-surface-variant">Open <b>SWRemote-Agent.exe</b> on a Windows PC first.</div>
-           </div>`;
-      return;
+    lastDevices = j.devices || [];
+    renderDeviceList(lastDevices);
+    // direct link support: ?id=123456789 opens the PIN box for that device (fresh loads only)
+    const want = new URLSearchParams(location.search).get("id");
+    if (want) {
+      const target = lastDevices.find((d) => d.id === want.trim());
+      if (target && target.online) (target.mine ? startSessionToken(target) : askPin(target));
+      else if (target) toast("That PC is offline right now.");
     }
-    list.innerHTML = "";
-    const q = ($("dev-search").value || "").trim().toLowerCase();
-    const shown = q ? j.devices.filter((d) => (d.name + " " + d.id).toLowerCase().includes(q)) : j.devices;
-    if (!shown.length) {
-      list.innerHTML = `<div class="col-span-full bg-surface-container-lowest rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
-        <span class="material-symbols-outlined text-5xl text-outline mb-3">search_off</span>
-        <div class="font-display font-bold text-xl mb-1">No matches.</div>
-        <div class="text-sm text-on-surface-variant">Try a different search.</div></div>`;
-      return;
-    }
+  } catch (e) {
+    $("dev-count").textContent = "";
+    list.innerHTML = `<div class="col-span-full bg-surface-container-lowest rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
+      <span class="material-symbols-outlined text-5xl text-outline mb-3">cloud_off</span>
+      <div class="font-display font-bold text-xl mb-1">Cannot reach the server.</div>
+      <div class="text-sm text-on-surface-variant">${esc(e.message)}<br>Check your connection and tap refresh.</div></div>`;
+  }
+}
+function renderDeviceList(devices) {
+  const list = $("device-list");
+  const online = devices.filter((d) => d.online).length;
+  $("dev-count").textContent = devices.length
+    ? `${online} of ${devices.length} online` : "";
+  if (!devices.length) {
+    list.innerHTML = sbOn() && sbSignedIn()
+      ? `<div class="col-span-full bg-surface-container-lowest rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
+           <span class="material-symbols-outlined text-5xl text-primary mb-3">desktop_access_disabled</span>
+           <div class="font-display font-bold text-xl mb-1">No devices yet.</div>
+           <div class="text-sm text-on-surface-variant">Tap <b>Add device</b> and enter the code from the PC app.</div>
+         </div>`
+      : `<div class="col-span-full bg-surface-container-lowest rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
+           <span class="material-symbols-outlined text-5xl text-primary mb-3">desktop_access_disabled</span>
+           <div class="font-display font-bold text-xl mb-1">No devices yet.</div>
+           <div class="text-sm text-on-surface-variant">Open <b>SWRemote-Agent.exe</b> on a Windows PC first.</div>
+         </div>`;
+    return;
+  }
+  list.innerHTML = "";
+  const q = ($("dev-search").value || "").trim().toLowerCase();
+  const shown = q ? devices.filter((d) => (d.name + " " + d.id).toLowerCase().includes(q)) : devices;
+  if (!shown.length) {
+    list.innerHTML = `<div class="col-span-full bg-surface-container-lowest rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
+      <span class="material-symbols-outlined text-5xl text-outline mb-3">search_off</span>
+      <div class="font-display font-bold text-xl mb-1">No matches.</div>
+      <div class="text-sm text-on-surface-variant">Try a different search.</div></div>`;
+    return;
+  }
     shown.forEach((d) => {
       const card = document.createElement("div");
       card.className = "device-card bg-surface-container-lowest rounded-2xl p-5 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col justify-between group" + (d.online ? "" : " opacity-90");
@@ -330,20 +350,6 @@ async function loadDevices() {
       card.querySelector(".btn-share").onclick = () => shareDevice(d);
       list.appendChild(card);
     });
-    // direct link support: ?id=123456789 opens the PIN box for that device
-    const want = new URLSearchParams(location.search).get("id");
-    if (want) {
-      const target = j.devices.find((d) => d.id === want.trim());
-      if (target && target.online) (target.mine ? startSessionToken(target) : askPin(target));
-      else if (target) toast("That PC is offline right now.");
-    }
-  } catch (e) {
-    $("dev-count").textContent = "";
-    list.innerHTML = `<div class="col-span-full bg-surface-container-lowest rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
-      <span class="material-symbols-outlined text-5xl text-outline mb-3">cloud_off</span>
-      <div class="font-display font-bold text-xl mb-1">Cannot reach the server.</div>
-      <div class="text-sm text-on-surface-variant">${esc(e.message)}<br>Check your connection and tap refresh.</div></div>`;
-  }
 }
 function shareDevice(d) {
   const link = location.origin + location.pathname + "?id=" + encodeURIComponent(d.id);
