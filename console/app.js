@@ -13,6 +13,7 @@ function show(id) {
 }
 
 /* ---------- server ---------- */
+const DEFAULT_SERVER = "https://swremote-relay.onrender.com";
 function serverBase() {
   return (localStorage.getItem(LS_SERVER) || "").replace(/\/$/, "");
 }
@@ -20,9 +21,23 @@ function wsUrl() {
   return serverBase().replace(/^http/, "ws") + "/ws";
 }
 function initServer() {
-  const saved = localStorage.getItem(LS_SERVER);
-  if (saved) { $("server-url").value = saved; show("scr-devices"); loadDevices(); }
-  else show("scr-login");
+  let saved = localStorage.getItem(LS_SERVER);
+  if (!saved) {
+    // first run: the relay address is built in — no typing needed
+    saved = DEFAULT_SERVER;
+    localStorage.setItem(LS_SERVER, saved);
+  }
+  $("server-url").value = saved;
+  show("scr-devices");
+  loadDevices().then(() => {
+    // direct link support: ?id=123456789 opens the PIN box for that device
+    const want = new URLSearchParams(location.search).get("id");
+    if (want) {
+      const card = [...document.querySelectorAll(".dev-card")].find((c) =>
+        c.querySelector(".dev-id").textContent.trim() === want.trim());
+      if (card) { const btn = card.querySelector("button"); if (btn && !btn.disabled) btn.click(); }
+    }
+  });
 }
 $("btn-save-server").onclick = () => {
   const v = $("server-url").value.trim().replace(/\/$/, "");

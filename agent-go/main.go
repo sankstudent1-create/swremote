@@ -194,8 +194,18 @@ func randomID() string {
 	return sb.String()
 }
 
+func randomPIN() string {
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	var sb strings.Builder
+	for _, v := range b {
+		sb.WriteByte(byte('0' + int(v) % 10))
+	}
+	return sb.String()
+}
+
 func loadConfig() *Config {
-	cfg := &Config{Server: "ws://localhost:8080/ws", FPS: 10, Quality: 60, Scale: 0.75, PIN: "123456"}
+	cfg := &Config{Server: "wss://swremote-relay.onrender.com/ws", FPS: 10, Quality: 60, Scale: 0.75, PIN: ""}
 	if hn, err := os.Hostname(); err == nil {
 		cfg.Name = hn
 	}
@@ -204,6 +214,9 @@ func loadConfig() *Config {
 	}
 	if cfg.DeviceID == "" {
 		cfg.DeviceID = randomID()
+	}
+	if cfg.PIN == "" {
+		cfg.PIN = randomPIN()
 	}
 	if cfg.FPS < 1 || cfg.FPS > 25 {
 		cfg.FPS = 10
@@ -350,8 +363,18 @@ func main() {
 	fmt.Println("============================================")
 	fmt.Println("Your SWRemote ID :", cfg.DeviceID)
 	fmt.Println("Your PIN         :", cfg.PIN)
-	fmt.Println("Edit swremote.json next to this .exe to change server/PIN.")
+	fmt.Println("Give the ID + PIN to the person who will connect.")
+	fmt.Println("Keep this window open while you want the PC reachable.")
 	fmt.Println()
+
+	// pop-up with the code, AnyDesk-style — nothing to configure
+	go func() {
+		t, _ := windows.UTF16PtrFromString("SWRemote is running")
+		m, _ := windows.UTF16PtrFromString(
+			"Give this code to the person connecting:\n\nYour ID: " + cfg.DeviceID + "\nPIN: " + cfg.PIN +
+				"\n\nThey open the SWRemote website, enter the ID, then the PIN.")
+		pMessageBoxW.Call(0, uintptr(unsafe.Pointer(m)), uintptr(unsafe.Pointer(t)), 0x40)
+	}()
 
 	backoff := 2 * time.Second
 	for {
