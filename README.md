@@ -41,13 +41,28 @@ Tradeoff: the address changes each time the file is re-run, and the PC must stay
 on and connected while you want remote access. (Manual alternative: `cd server &&
 npm install && npm start`, then expose port 8080 yourself.)
 
-### 2. On the Windows PC — just open the exe
+### 2. On the Windows PC — install it (recommended) or just run the exe
 
-1. Copy `agent-go/SWRemote-Agent.exe` to the Windows PC and double-click it. No install, no Python, nothing to configure.
-2. A window pops up showing your **9-digit ID** and **PIN** (a random PIN is created automatically on first run).
-3. Give the ID + PIN to whoever will connect. Keep the exe window open while you want the PC reachable.
+**Option A — installer (recommended):** copy `installer/SWRemote-Setup.exe` to the PC and double-click it.
+A setup wizard walks you through it: install folder, desktop/Start Menu shortcuts,
+start-with-Windows option. No admin rights needed. If SWRemote is already installed,
+the wizard switches to **Update** mode and updates it while keeping your ID and PIN.
+
+**Option B — portable:** copy `agent-go/SWRemote-Agent.exe` anywhere and double-click it.
+A window opens showing your **9-digit ID** and **PIN** (a random PIN is created
+automatically on first run). Give the ID + PIN to whoever will connect.
+Keep the window open while you want the PC reachable.
 
 That's it — exactly like AnyDesk.
+
+### 2b. Updates — both types
+
+- **Click to update:** in the SWRemote window, click **Check for Updates**.
+  If a new version exists it downloads and installs it, then restarts by itself.
+- **Update via installer:** run `SWRemote-Setup.exe` again — it detects the existing
+  install and updates it, keeping your ID and PIN.
+- **Uninstall:** Windows Settings → Apps → SWRemote → Uninstall,
+  or run `SWRemote-Agent.exe --uninstall`.
 ### 3. Open the console on your phone
 
 1. Go to `https://your-name.onrender.com` (your server address) in the phone browser.

@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
 
@@ -25,6 +26,14 @@ import (
 	"github.com/kbinani/screenshot"
 	"golang.org/x/image/draw"
 	"golang.org/x/sys/windows"
+)
+
+// appVersion is overridden at build time: -ldflags "-X main.appVersion=2.0.0"
+var appVersion = "2.0.0"
+
+var (
+	cfg   *Config
+	cfgMu sync.Mutex
 )
 
 // ---------------- WinAPI ----------------
@@ -205,30 +214,36 @@ func randomPIN() string {
 }
 
 func loadConfig() *Config {
-	cfg := &Config{Server: "wss://swremote-relay.onrender.com/ws", FPS: 10, Quality: 60, Scale: 0.75, PIN: ""}
+	c := &Config{Server: "wss://swremote-relay.onrender.com/ws", FPS: 10, Quality: 60, Scale: 0.75, PIN: ""}
 	if hn, err := os.Hostname(); err == nil {
-		cfg.Name = hn
+		c.Name = hn
 	}
 	if data, err := os.ReadFile(configPath()); err == nil {
-		_ = json.Unmarshal(data, cfg)
+		_ = json.Unmarshal(data, c)
 	}
-	if cfg.DeviceID == "" {
-		cfg.DeviceID = randomID()
+	if c.DeviceID == "" {
+		c.DeviceID = randomID()
 	}
-	if cfg.PIN == "" {
-		cfg.PIN = randomPIN()
+	if c.PIN == "" {
+		c.PIN = randomPIN()
 	}
-	if cfg.FPS < 1 || cfg.FPS > 25 {
-		cfg.FPS = 10
+	if c.FPS < 1 || c.FPS > 25 {
+		c.FPS = 10
 	}
-	if cfg.Quality < 10 || cfg.Quality > 90 {
-		cfg.Quality = 60
+	if c.Quality < 10 || c.Quality > 90 {
+		c.Quality = 60
 	}
-	if cfg.Scale < 0.25 || cfg.Scale > 1 {
-		cfg.Scale = 0.75
+	if c.Scale < 0.25 || c.Scale > 1 {
+		c.Scale = 0.75
 	}
+	_ = os.WriteFile(configPath(), mustJSON(c), 0600)
+	return c
+}
+
+func saveConfig() {
+	cfgMu.Lock()
+	defer cfgMu.Unlock()
 	_ = os.WriteFile(configPath(), mustJSON(cfg), 0600)
-	return cfg
 }
 
 func mustJSON(v any) []byte {
@@ -357,36 +372,28 @@ func handleFileChunk(data []byte) {
 // ---------------- main ----------------
 
 func main() {
-	cfg := loadConfig()
-	fmt.Println("============================================")
-	fmt.Println("  SWRemote Agent  (by SWInfoSystems)")
-	fmt.Println("============================================")
-	fmt.Println("Your SWRemote ID :", cfg.DeviceID)
-	fmt.Println("Your PIN         :", cfg.PIN)
-	fmt.Println("Give the ID + PIN to the person who will connect.")
-	fmt.Println("Keep this window open while you want the PC reachable.")
-	fmt.Println()
+	if len(os.Args) > 1 && os.Args[1] == "--uninstall" {
+		doUninstall()
+		return
+	}
+	cfg = loadConfig()
 
-	// pop-up with the code, AnyDesk-style — nothing to configure
+	// network loop runs in the background; the GUI owns the main thread
 	go func() {
-		t, _ := windows.UTF16PtrFromString("SWRemote is running")
-		m, _ := windows.UTF16PtrFromString(
-			"Give this code to the person connecting:\n\nYour ID: " + cfg.DeviceID + "\nPIN: " + cfg.PIN +
-				"\n\nThey open the SWRemote website, enter the ID, then the PIN.")
-		pMessageBoxW.Call(0, uintptr(unsafe.Pointer(m)), uintptr(unsafe.Pointer(t)), 0x40)
+		backoff := 2 * time.Second
+		for {
+			guiSetStatus("Connecting to relay…", false)
+			if err := runSession(cfg); err != nil {
+				guiSetStatus("Connection lost — retrying…", false)
+			}
+			time.Sleep(backoff)
+			if backoff < 30*time.Second {
+				backoff *= 2
+			}
+		}
 	}()
 
-	backoff := 2 * time.Second
-	for {
-		if err := runSession(cfg); err != nil {
-			fmt.Println("Connection lost:", err)
-		}
-		fmt.Printf("Retrying in %v...\n", backoff)
-		time.Sleep(backoff)
-		if backoff < 30*time.Second {
-			backoff *= 2
-		}
-	}
+	runGUI() // blocks until the window is closed
 }
 
 func runSession(cfg *Config) error {
@@ -473,7 +480,7 @@ func runSession(cfg *Config) error {
 		}
 		switch msg["t"] {
 		case "registered":
-			fmt.Println("Registered. Waiting for viewers...")
+			guiSetStatus("Online — waiting for viewers…", true)
 		case "input":
 			applyInput(msg)
 		case "quality":
@@ -498,6 +505,7 @@ func runSession(cfg *Config) error {
 			lockWorkstation()
 		case "viewer_joined":
 			notify("SWRemote", "Someone connected to this PC")
+			guiSetStatus("Viewer connected — sharing screen", true)
 		}
 	}
 }

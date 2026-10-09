@@ -3,3 +3,5 @@ devices.json
 __pycache__/
 *.pyc
 .DS_Store
+
+installer/SWRemote-Agent.exe

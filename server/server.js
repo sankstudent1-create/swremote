@@ -74,6 +74,22 @@ const httpServer = http.createServer((req, res) => {
     res.writeHead(200, { "Content-Type": "application/json", ...cors });
     return res.end(JSON.stringify({ devices: list }));
   }
+  if (url.pathname === "/api/version") {
+    const vf = path.join(__dirname, "..", "version.json");
+    res.writeHead(200, { "Content-Type": "application/json", ...cors });
+    if (fs.existsSync(vf)) return res.end(fs.readFileSync(vf));
+    return res.end(JSON.stringify({ version: "0.0.0" }));
+  }
+  if (url.pathname === "/download/agent") {
+    const exe = path.join(__dirname, "..", "agent-go", "SWRemote-Agent.exe");
+    if (!fs.existsSync(exe)) { res.writeHead(404); return res.end("not found"); }
+    res.writeHead(200, {
+      "Content-Type": "application/octet-stream",
+      "Content-Disposition": 'attachment; filename="SWRemote-Agent.exe"',
+      "Content-Length": fs.statSync(exe).size,
+    });
+    return fs.createReadStream(exe).pipe(res);
+  }
   // static console
   let p = url.pathname === "/" ? "/index.html" : url.pathname;
   const file = path.normalize(path.join(CONSOLE_DIR, p));
