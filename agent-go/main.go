@@ -30,7 +30,7 @@ import (
 )
 
 // appVersion is overridden at build time: -ldflags "-X main.appVersion=3.1.0"
-var appVersion = "4.0.0"
+var appVersion = "5.0.0"
 
 var (
 	cfg   *Config
@@ -192,6 +192,7 @@ type Config struct {
 	Quality   int    `json:"quality"`
 	Scale     float64 `json:"scale"`
 	ClaimCode string `json:"claim_code"` // Phase 1: shown in the window, entered once in the dashboard
+	AutoRunSet bool   `json:"autorun_set"` // true once the user (or first-run default) decided about auto-start
 }
 
 func configPath() string {
@@ -441,6 +442,13 @@ func main() {
 	initLog()
 	cfg = loadConfig()
 	log("ID %s, server %s", cfg.DeviceID, cfg.Server)
+
+	// auto-start with Windows by default from now on; the in-window checkbox opts out
+	if !cfg.AutoRunSet {
+		setAutoRun(true)
+		cfg.AutoRunSet = true
+		saveConfig()
+	}
 
 	// network loop runs in the background; the GUI owns the main thread
 	safeGo("netloop", func() {

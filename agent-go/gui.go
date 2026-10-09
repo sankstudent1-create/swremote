@@ -366,7 +366,7 @@ func drawPill(hdc uintptr) {
 	pSelectObject.Call(hdc, oldBr2)
 	// label
 	pSetBkMode.Call(hdc, TRANSPARENT)
-	pSetTextColor.Call(hdc, colorRef(0x1f, 0x5f, 0xc0))
+	pSetTextColor.Call(hdc, colorRef(0x6d, 0x28, 0xd9))
 	oldF, _, _ := pSelectObject.Call(hdc, gFonts["norm"])
 	var rc = [4]int32{320, 36, 412, 60}
 	pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16(text))), 0xFFFFFFFF /*cchText=-1, null-terminated*/, uintptr(unsafe.Pointer(&rc)), 0)
@@ -423,8 +423,8 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		pSelectObject.Call(hdc, oldBr)
 		// header gradient
 		v := [2]triVertex{
-			{0, 0, 0x2f * 257, 0x7d * 257, 0xe1 * 257, 0},
-			{430, 104, 0x5a * 257, 0xa2 * 257, 0xf5 * 257, 0},
+			{0, 0, 0x7c * 257, 0x3a * 257, 0xed * 257, 0},
+			{430, 104, 0xa7 * 257, 0x8b * 257, 0xfa * 257, 0},
 		}
 		gr := gradientRect{0, 1}
 		pGradientFill.Call(hdc, uintptr(unsafe.Pointer(&v[0])), 2, uintptr(unsafe.Pointer(&gr)), 1, 0)
@@ -562,6 +562,10 @@ func onClick(id int) {
 			}
 		}
 		setAutoRun(chk == 1)
+		cfgMu.Lock()
+		cfg.AutoRunSet = true // explicit user choice — never auto-change again
+		cfgMu.Unlock()
+		saveConfig()
 	}
 }
 

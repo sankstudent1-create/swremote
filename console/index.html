@@ -5,17 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>SWRemote — Remote Desktop Dashboard</title>
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#005bb2">
+<meta name="theme-color" content="#7c3aed">
 <link rel="icon" href="logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
 <link rel="stylesheet" href="tailwind.css">
 <style>
   html,body{margin:0;padding:0;}
-  body{font-family:Inter,system-ui,sans-serif;background:#f7fafe;color:#181c1f;-webkit-tap-highlight-color:transparent;}
-  .font-display{font-family:"Plus Jakarta Sans",Inter,sans-serif;}
+  body{font-family:"DM Sans",system-ui,sans-serif;background:#f7fafe;color:#181c1f;-webkit-tap-highlight-color:transparent;}
+  .font-display{font-family:"Outfit",Inter,sans-serif;}
   ::-webkit-scrollbar{width:10px;height:10px}
   ::-webkit-scrollbar-thumb{background:#c1c6d5;border-radius:8px;border:2px solid #f7fafe}
   .material-symbols-outlined{font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24;}
@@ -55,7 +55,7 @@
   .toolbar button{flex:1; background:none; border:0; color:#aebdd6; display:flex; flex-direction:column; align-items:center; gap:3px; padding:8px 0; border-radius:12px; font-size:11px; font-weight:600; cursor:pointer; transition:background .15s, transform .1s; position:relative;}
   .toolbar button:active{background:#1e2a3f; transform:scale(.94);}
   .toolbar button.on{color:#fff;}
-  .toolbar button.on::after{content:""; position:absolute; top:4px; width:5px; height:5px; border-radius:50%; background:#5aa2f5;}
+  .toolbar button.on::after{content:""; position:absolute; top:4px; width:5px; height:5px; border-radius:50%; background:#a78bfa;}
   .t-ico{font-size:20px; line-height:1;}
   .t-label{font-size:10.5px; letter-spacing:.2px;}
   .sheet{position:fixed; left:0; right:0; bottom:0; max-height:82dvh; background:#fff; z-index:20; display:flex; flex-direction:column; border-radius:22px 22px 0 0; border:1px solid #e7edf5; box-shadow:0 -12px 40px rgba(0,0,0,.25); animation:sheetUp .25s ease;}
@@ -68,12 +68,12 @@
   .chat-log{flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:9px; min-height:120px;}
   .chat-msg{max-width:85%; padding:10px 14px; border-radius:16px; font-size:14.5px; line-height:1.45; animation:riseIn .25s ease both; box-shadow:0 2px 8px rgba(22,35,58,.06);}
   @keyframes riseIn{from{transform:translateY(8px); opacity:0;} to{transform:none; opacity:1;}}
-  .chat-msg.me{align-self:flex-end; background:linear-gradient(135deg,#2f7de1,#5aa2f5); color:#fff; border-bottom-right-radius:6px;}
+  .chat-msg.me{align-self:flex-end; background:linear-gradient(135deg,#7c3aed,#a78bfa); color:#fff; border-bottom-right-radius:6px;}
   .chat-msg.them{align-self:flex-start; background:#e9f1fd; color:#16233a; border-bottom-left-radius:6px;}
   .chat-input{display:flex; gap:8px; padding:12px 14px calc(14px + env(safe-area-inset-bottom)); border-top:1px solid #e7edf5;}
   .chat-input input{flex:1; padding:12px 14px; border:1.5px solid #e7edf5; border-radius:12px; font-size:15px; font-family:inherit;}
-  .chat-input input:focus{outline:none; border-color:#2f7de1;}
-  .chat-input .primary{width:auto; margin:0; padding:12px 20px; background:linear-gradient(135deg,#2f7de1,#5aa2f5); color:#fff; border:0; border-radius:12px; font-weight:700; cursor:pointer;}
+  .chat-input input:focus{outline:none; border-color:#7c3aed;}
+  .chat-input .primary{width:auto; margin:0; padding:12px 20px; background:linear-gradient(135deg,#7c3aed,#a78bfa); color:#fff; border:0; border-radius:12px; font-weight:700; cursor:pointer;}
   .pad{padding:18px;}
   .file-drop{display:flex; align-items:center; justify-content:center; gap:8px; border:2px dashed #e7edf5; border-radius:12px; padding:26px; font-size:15px; font-weight:600; color:#1f5fc0; background:#e9f1fd; cursor:pointer; margin:0;}
   #file-progress{margin-top:12px; font-size:13px; color:#8494ab;}
@@ -93,7 +93,7 @@
   #pin-input{text-align:center; font-size:24px; letter-spacing:8px; font-weight:700; padding:14px; margin-top:14px; border:1.5px solid #e7edf5; border-radius:12px; font-family:inherit;}
   #pin-input::placeholder{letter-spacing:8px; color:#c3ccd8;}
   .modal-actions{display:flex; gap:10px; margin-top:18px;}
-  .modal-actions .primary{flex:1.4; background:linear-gradient(135deg,#2f7de1,#5aa2f5); color:#fff; border:0; border-radius:12px; padding:13px; font-weight:700; cursor:pointer;}
+  .modal-actions .primary{flex:1.4; background:linear-gradient(135deg,#7c3aed,#a78bfa); color:#fff; border:0; border-radius:12px; padding:13px; font-weight:700; cursor:pointer;}
   .modal-actions .ghost{flex:1; background:#e9f1fd; color:#1f5fc0; border:0; border-radius:12px; padding:13px; font-weight:700; cursor:pointer;}
   .logo-img{width:58px; height:58px; border-radius:19px; background:#fff;}
   .logo-img.sm{width:36px; height:36px; border-radius:11px;}
@@ -109,7 +109,7 @@
   .icon-btn{background:#e9f1fd; color:#1f5fc0; width:40px; height:40px; padding:0; border:0; border-radius:12px; font-size:18px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; cursor:pointer;}
   /* auth extras */
   .auth-input{width:100%;padding:13px 16px;border:1.5px solid #e0e3e7;border-radius:12px;font:inherit;font-size:15px;background:#fff;outline:none;transition:border .15s, box-shadow .15s; box-sizing:border-box;}
-  .auth-input:focus{border-color:#005bb2;box-shadow:0 0 0 4px rgba(0,91,178,.12)}
+  .auth-input:focus{border-color:#7c3aed;box-shadow:0 0 0 4px rgba(124,58,237,.12)}
   .hidden{display:none!important}
 </style>
 </head>
@@ -349,7 +349,7 @@
     <div class="sheet-head"><div class="sheet-grip"></div><b>Send file to this PC</b><button class="icon-btn" data-close="files-panel">✕</button></div>
     <div class="pad">
       <label class="file-drop" for="file-input">📁 Choose a file…<input id="file-input" type="file" hidden></label>
-      <button id="btn-send-file" class="primary" disabled style="width:100%; margin-top:12px; background:linear-gradient(135deg,#2f7de1,#5aa2f5); color:#fff; border:0; border-radius:12px; padding:13px; font-weight:700; cursor:pointer;">Send</button>
+      <button id="btn-send-file" class="primary" disabled style="width:100%; margin-top:12px; background:linear-gradient(135deg,#7c3aed,#a78bfa); color:#fff; border:0; border-radius:12px; padding:13px; font-weight:700; cursor:pointer;">Send</button>
       <div id="file-progress"></div>
       <p class="hint">Received files land in <b>Downloads\SWRemote</b> on the PC.</p>
     </div>
