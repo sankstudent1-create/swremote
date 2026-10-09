@@ -20,17 +20,17 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
 	"github.com/gorilla/websocket"
 	"github.com/kbinani/screenshot"
-	"golang.org/x/image/draw"
 	"golang.org/x/sys/windows"
 )
 
-// appVersion is overridden at build time: -ldflags "-X main.appVersion=2.2.2"
-var appVersion = "2.2.2"
+// appVersion is overridden at build time: -ldflags "-X main.appVersion=3.0.0"
+var appVersion = "3.0.0"
 
 var (
 	cfg   *Config
@@ -45,7 +45,11 @@ var (
 	pGetSystemMetrics = user32.NewProc("GetSystemMetrics")
 	pMessageBoxW     = user32.NewProc("MessageBoxW")
 	pLockWorkStation = user32.NewProc("LockWorkStation")
+	pGetCursorPos    = user32.NewProc("GetCursorPos")
 )
+
+// needKeyframe is set when a viewer joins or asks for a full frame.
+var needKeyframe atomic.Bool
 
 const (
 	SM_CXSCREEN = 0
@@ -215,7 +219,7 @@ func randomPIN() string {
 }
 
 func loadConfig() *Config {
-	c := &Config{Server: "wss://swremote-relay.onrender.com/ws", FPS: 12, Quality: 70, Scale: 0.8, PIN: ""}
+	c := &Config{Server: "wss://swremote-relay.onrender.com/ws", FPS: 30, Quality: 70, Scale: 1.0, PIN: ""}
 	if hn, err := os.Hostname(); err == nil {
 		c.Name = hn
 	}
@@ -228,14 +232,14 @@ func loadConfig() *Config {
 	if c.PIN == "" {
 		c.PIN = randomPIN()
 	}
-	if c.FPS < 1 || c.FPS > 20 {
-		c.FPS = 12
+	if c.FPS < 1 || c.FPS > 30 {
+		c.FPS = 30
 	}
 	if c.Quality < 10 || c.Quality > 90 {
 		c.Quality = 70
 	}
 	if c.Scale < 0.25 || c.Scale > 1 {
-		c.Scale = 0.8
+		c.Scale = 1.0
 	}
 	_ = os.WriteFile(configPath(), mustJSON(c), 0600)
 	return c
@@ -252,25 +256,66 @@ func mustJSON(v any) []byte {
 	return b
 }
 
-// ---------------- capture ----------------
+// ---------------- tiled streaming (v3.0) ----------------
+// Instead of JPEG-encoding the whole screen every frame (5-8 fps), the
+// screen is split into 128x128 tiles; only tiles that changed since the
+// previous frame are encoded and sent (0x03 packets). Full keyframes (0x01)
+// go out on viewer join, on request, on resolution change, and every 4 s.
 
-func grabFrame(cfg *Config, quality int) ([]byte, int, int) {
-	bounds := screenshot.GetDisplayBounds(0)
-	img, err := screenshot.CaptureRect(bounds)
-	if err != nil {
-		return nil, 0, 0
+const tileSize = 128
+
+func tileGrid(w, h int) (cols, rows int) {
+	cols = (w + tileSize - 1) / tileSize
+	rows = (h + tileSize - 1) / tileSize
+	return cols, rows
+}
+
+func tileRect(idx, cols, w, h int) image.Rectangle {
+	tx, ty := idx%cols, idx/cols
+	x0, y0 := tx*tileSize, ty*tileSize
+	x1, y1 := x0+tileSize, y0+tileSize
+	if x1 > w {
+		x1 = w
 	}
-	sw := int(float64(bounds.Dx()) * cfg.Scale)
-	sh := int(float64(bounds.Dy()) * cfg.Scale)
-	var src image.Image = img
-	if sw != bounds.Dx() || sh != bounds.Dy() {
-		dst := image.NewRGBA(image.Rect(0, 0, sw, sh))
-		draw.ApproxBiLinear.Scale(dst, dst.Bounds(), img, img.Bounds(), draw.Over, nil)
-		src = dst
+	if y1 > h {
+		y1 = h
 	}
+	return image.Rect(x0, y0, x1, y1)
+}
+
+// tileChanged compares one tile region row by row (fast memcmp).
+func tileChanged(cur, prev *image.RGBA, r image.Rectangle) bool {
+	cs, ps := cur.Stride, prev.Stride
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		w := (r.Max.X - r.Min.X) * 4
+		co := y*cs + r.Min.X*4
+		po := y*ps + r.Min.X*4
+		if !bytes.Equal(cur.Pix[co:co+w], prev.Pix[po:po+w]) {
+			return true
+		}
+	}
+	return false
+}
+
+func encodeJPEG(img image.Image, quality int) []byte {
 	var buf bytes.Buffer
-	_ = jpeg.Encode(&buf, src, &jpeg.Options{Quality: clampInt(quality, 10, 95)})
-	return buf.Bytes(), sw, sh
+	_ = jpeg.Encode(&buf, img, &jpeg.Options{Quality: clampInt(quality, 10, 95)})
+	return buf.Bytes()
+}
+
+func captureScreen() (*image.RGBA, error) {
+	bounds := screenshot.GetDisplayBounds(0)
+	return screenshot.CaptureRect(bounds)
+}
+
+// cursorPos returns the current mouse position in screen pixels.
+func cursorPos() (int, int, bool) {
+	var pt [2]int32
+	r, _, _ := pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt[0])))
+	if r == 0 {
+		return 0, 0, false
+	}
+	return int(pt[0]), int(pt[1]), true
 }
 
 // ---------------- input dispatch ----------------
@@ -435,8 +480,10 @@ func runSession(cfg *Config) error {
 	stop := make(chan struct{})
 	defer close(stop)
 
-	// screen sender — adaptive quality: raises JPEG quality when the
-	// network is fast, lowers it when frames start lagging
+	// screen sender — tiled dirty-region streaming (v3.0).
+	// Captures at cfg.FPS, diffs 128x128 tiles vs the previous frame and
+	// sends only changed tiles (0x03). Full keyframes (0x01) go out on
+	// viewer join / request, on resolution change, and every 4 seconds.
 	safeGo("sender", func() {
 		interval := time.Second / time.Duration(cfg.FPS)
 		maxQ := clampInt(cfg.Quality, 30, 90)
@@ -444,9 +491,12 @@ func runSession(cfg *Config) error {
 		if q > 70 {
 			q = 70 // start balanced, adapt up from here
 		}
+		var prev *image.RGBA
 		var winStart = time.Now()
 		var winTotal time.Duration
 		var winCount int
+		lastKeyframe := time.Now().Add(-time.Hour) // force keyframe first
+		needKeyframe.Store(true)
 		for {
 			select {
 			case <-stop:
@@ -454,8 +504,24 @@ func runSession(cfg *Config) error {
 			default:
 			}
 			start := time.Now()
-			data, _, _ := grabFrame(cfg, q)
-			if data != nil {
+			img, err := captureScreen()
+			if err != nil || img == nil {
+				select {
+				case <-stop:
+					return
+				case <-time.After(interval):
+				}
+				continue
+			}
+			w, h := img.Bounds().Dx(), img.Bounds().Dy()
+			if prev != nil && (prev.Bounds().Dx() != w || prev.Bounds().Dy() != h) {
+				prev = nil // resolution changed — start over
+			}
+			cols, rows := tileGrid(w, h)
+			nTiles := cols * rows
+			key := needKeyframe.Swap(false) || prev == nil || time.Since(lastKeyframe) > 4*time.Second
+			if key {
+				data := encodeJPEG(img, q)
 				pkt := make([]byte, 0, len(data)+1)
 				pkt = append(pkt, 0x01)
 				pkt = append(pkt, data...)
@@ -463,19 +529,46 @@ func runSession(cfg *Config) error {
 				if err := ws.WriteMessage(websocket.BinaryMessage, pkt); err != nil {
 					return
 				}
+				lastKeyframe = time.Now()
+			} else {
+				var changed []int
+				for idx := 0; idx < nTiles; idx++ {
+					if tileChanged(img, prev, tileRect(idx, cols, w, h)) {
+						changed = append(changed, idx)
+					}
+				}
+				if len(changed) > nTiles*40/100 {
+					// too much changed — a full keyframe is cheaper
+					needKeyframe.Store(true)
+				} else {
+					for _, idx := range changed {
+						tile := encodeJPEG(img.SubImage(tileRect(idx, cols, w, h)), q)
+						pkt := make([]byte, 0, len(tile)+3)
+						pkt = append(pkt, 0x03)
+						var ib [2]byte
+						binary.BigEndian.PutUint16(ib[:], uint16(idx))
+						pkt = append(pkt, ib[:]...)
+						pkt = append(pkt, tile...)
+						ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
+						if err := ws.WriteMessage(websocket.BinaryMessage, pkt); err != nil {
+							return
+						}
+					}
+				}
 			}
+			prev = img
 			elapsed := time.Since(start)
 			winTotal += elapsed
 			winCount++
-			// re-tune every 2 seconds based on average frame cost
+			// re-tune every 2 seconds based on average tick cost
 			if time.Since(winStart) > 2*time.Second && winCount > 0 {
 				avg := winTotal / time.Duration(winCount)
-				if avg < 70*time.Millisecond && q < maxQ {
+				if avg < 25*time.Millisecond && q < maxQ {
 					q += 5
 					if q > maxQ {
 						q = maxQ
 					}
-				} else if avg > 180*time.Millisecond && q > 30 {
+				} else if avg > 60*time.Millisecond && q > 30 {
 					q -= 10
 					if q < 30 {
 						q = 30
@@ -483,7 +576,7 @@ func runSession(cfg *Config) error {
 				}
 				winStart, winTotal, winCount = time.Now(), 0, 0
 			}
-			// adaptive: if sending took longer than the interval, skip sleeping (drop lag)
+			// if the tick took longer than the interval, skip sleeping (drop lag)
 			if elapsed < interval {
 				select {
 				case <-stop:
@@ -491,6 +584,28 @@ func runSession(cfg *Config) error {
 				case <-time.After(interval - elapsed):
 				}
 			}
+		}
+	})
+
+	// cursor reporter — sends remote mouse position when it moves (v3.0)
+	safeGo("cursor", func() {
+		t := time.NewTicker(100 * time.Millisecond)
+		defer t.Stop()
+		lx, ly := -1, -1
+		for {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+			}
+			x, y, ok := cursorPos()
+			if !ok || (x == lx && y == ly) {
+				continue
+			}
+			lx, ly = x, y
+			ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			_ = ws.WriteMessage(websocket.TextMessage,
+				[]byte(fmt.Sprintf(`{"t":"cursor","x":%d,"y":%d}`, x, y)))
 		}
 	})
 
@@ -537,6 +652,8 @@ func runSession(cfg *Config) error {
 				cfg.Scale = clampFloat(s, 0.25, 1.0)
 			}
 			fmt.Println("quality ->", cfg.Quality, "scale ->", cfg.Scale)
+		case "keyframe":
+			needKeyframe.Store(true)
 		case "chat":
 			text, _ := msg["text"].(string)
 			fmt.Println("CHAT:", text)
@@ -551,6 +668,7 @@ func runSession(cfg *Config) error {
 			lockWorkstation()
 		case "viewer_joined":
 			notify("SWRemote", "Someone connected to this PC")
+			needKeyframe.Store(true) // new viewer gets a full frame immediately
 			if n, ok := msg["viewers"].(float64); ok {
 				guiSetViewers(int(n))
 			}

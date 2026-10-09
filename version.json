@@ -1,5 +1,5 @@
 {
-  "version": "2.2.2",
-  "notes": "Design edition: AI logo inside the PC app window, premium website polish (animated login, skeleton loading, smoother buttons), update-check popup loop fixed, installer now reports errors instead of failing silently.",
+  "version": "3.0.0",
+  "notes": "v3.0 streaming engine: tiled dirty-region screen sharing (only changed screen regions are sent) for 25-30 fps at full sharpness, remote cursor overlay, plus in-depth docs (architecture, protocol, performance, v3 roadmap).",
   "url": "https://swremote-relay.onrender.com/download/agent"
 }

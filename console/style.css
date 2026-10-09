@@ -292,3 +292,12 @@ button:focus-visible, input:focus-visible, select:focus-visible{
 /* topbar: subtle gradient hairline */
 .topbar{box-shadow:0 1px 0 rgba(47,125,225,.06);}
 .page-head h2{font-size:24px;}
+
+/* ---- v3.0: remote cursor overlay + tile canvas ---- */
+#zoomwrap{position:relative;}
+.remote-cursor{
+  position:absolute; left:0; top:0; width:18px; height:18px; display:none;
+  pointer-events:none; z-index:5;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath d='M4 2 L4 14 L8 10.5 L10 15 L12 14 L10 9.5 L14 9 Z' fill='%23ffffff' stroke='%2316233a' stroke-width='1.4'/%3E%3C/svg%3E") no-repeat;
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,.5));
+}

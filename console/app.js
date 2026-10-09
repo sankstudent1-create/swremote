@@ -162,7 +162,8 @@ function setStatus(txt, err) {
   el.style.display = txt ? "block" : "none";
 }
 
-const BIN_FRAME = 1, BIN_FILE = 2;
+const BIN_FRAME = 1, BIN_FILE = 2, BIN_TILE = 3;
+const TILE = 128;
 
 function onWsMsg(ev) {
   if (ev.data instanceof ArrayBuffer) { handleBinary(new Uint8Array(ev.data)); return; }
@@ -171,17 +172,20 @@ function onWsMsg(ev) {
     if (!m.online) { setStatus("Device is offline.", true); return; }
     setStatus(""); $("sess-dot").className = "dot on";
     if (m.screen) sizeCanvas(m.screen.w, m.screen.h);
+    ws.send(JSON.stringify({ t: "keyframe" })); // ask for a full frame now
   }
   else if (m.t === "error") setStatus("Error: " + (m.msg || "unknown"), true);
   else if (m.t === "agent_gone") { setStatus("Device went offline.", true); $("sess-dot").className = "dot off"; }
   else if (m.t === "agent_back") { setStatus(""); $("sess-dot").className = "dot on"; }
   else if (m.t === "chat") addChat(m.text, false);
+  else if (m.t === "cursor") moveRemoteCursor(m.x, m.y);
   else if (m.t === "file_meta") noteFileFromAgent(m);
 }
 
 function handleBinary(u8) {
   const kind = u8[0];
   if (kind === BIN_FRAME) { drawFrame(u8.subarray(1)); return; }
+  if (kind === BIN_TILE) { queueTile(u8); return; }
   if (kind === BIN_FILE) { recvFileChunk(u8.subarray(1)); return; }
 }
 
@@ -252,6 +256,35 @@ setInterval(() => {
   } else el.style.display = "none";
   framesThisSec = 0;
 }, 2000);
+
+// ---- tiled rendering (v3.0): tiles are composited straight onto the canvas.
+// Tiles arrive as: 0x03 + uint16BE idx + JPEG. idx = row*cols + col.
+let tileQueue = Promise.resolve();
+function queueTile(u8) {
+  tileQueue = tileQueue.then(() => drawTile(u8)).catch(() => {});
+}
+async function drawTile(u8) {
+  if (!frameW) return; // no keyframe yet — will come shortly
+  const idx = (u8[1] << 8) | u8[2];
+  const cols = Math.ceil(frameW / TILE);
+  const col = idx % cols, row = Math.floor(idx / cols);
+  const bmp = await createImageBitmap(new Blob([u8.subarray(3)], { type: "image/jpeg" }));
+  ctx.drawImage(bmp, col * TILE, row * TILE);
+  bmp.close();
+  framesThisSec++;
+  if ($("sess-status").textContent) setStatus("");
+}
+
+// ---- remote cursor overlay (v3.0) ----
+function moveRemoteCursor(x, y) {
+  const cur = $("cursor");
+  if (!frameW || !canvas.clientWidth) return;
+  const s = canvas.clientWidth / frameW;
+  cur.style.display = "block";
+  cur.style.transform = `translate(${Math.round(x * s)}px, ${Math.round(y * s)}px)`;
+  clearTimeout(cur._t);
+  cur._t = setTimeout(() => (cur.style.display = "none"), 4000);
+}
 
 // fullscreen toggle
 $("btn-full").onclick = () => {
