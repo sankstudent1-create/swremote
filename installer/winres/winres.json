@@ -11,10 +11,10 @@
     "#1": {
       "0409": {
         "identity": {
-          "name": "SWRemote",
+          "name": "SWRemote Setup",
           "version": ""
         },
-        "description": "SWRemote by SWInfoSystems",
+        "description": "SWRemote Setup by SWInfoSystems",
         "minimum-os": "win7",
         "execution-level": "as invoker",
         "ui-access": false,
@@ -28,31 +28,24 @@
         "printer-driver-isolation": false,
         "gdi-scaling": false,
         "segment-heap": false,
-        "use-common-controls-v6": false
+        "use-common-controls-v6": true
       }
     }
   },
   "RT_VERSION": {
     "#1": {
-      "0000": {
+      "0409": {
         "fixed": {
-          "file_version": "2.2.2.0",
-          "product_version": "2.2.2.0"
+          "file_version": "2.2.2",
+          "product_version": "2.2.2"
         },
         "info": {
           "0409": {
-            "Comments": "",
-            "CompanyName": "SWInfoSystems",
-            "FileDescription": "SWRemote by SWInfoSystems",
-            "FileVersion": "2.2.2",
-            "InternalName": "SWRemote-Agent",
-            "LegalCopyright": "",
-            "LegalTrademarks": "",
-            "OriginalFilename": "SWRemote-Agent.exe",
-            "PrivateBuild": "",
+            "FileDescription": "SWRemote Setup by SWInfoSystems",
             "ProductName": "SWRemote",
-            "ProductVersion": "2.2.2",
-            "SpecialBuild": ""
+            "CompanyName": "SWInfoSystems",
+            "FileVersion": "2.2.2",
+            "ProductVersion": "2.2.2"
           }
         }
       }
