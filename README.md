@@ -32,8 +32,14 @@ Note: the free tier sleeps after inactivity; first connection takes ~30s to wake
 
 **Option B — Railway / Fly.io (free tiers).** Same two commands; both give TLS.
 
-**Option C — your own PC.** `cd server && npm install && npm start`, then expose
-port 8080 (port-forward your router, or use Tailscale/Cloudflare Tunnel — free).
+**Option C — your own PC (one double-click, no card, no account).** Copy the
+whole `server/` folder to the Windows PC and run `run-relay-tunnel.bat` — it
+installs the relay, starts it, and opens a free Cloudflare quick tunnel, printing
+a public `https://xxxx.trycloudflare.com` address. The relay AND the phone console
+both run from that one address, so this option needs neither Render nor Vercel.
+Tradeoff: the address changes each time the file is re-run, and the PC must stay
+on and connected while you want remote access. (Manual alternative: `cd server &&
+npm install && npm start`, then expose port 8080 yourself.)
 
 ### 2. Install the agent on each Windows PC
 
