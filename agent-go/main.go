@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"image"
 	"image/jpeg"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -214,7 +215,7 @@ func randomPIN() string {
 }
 
 func loadConfig() *Config {
-	c := &Config{Server: "wss://swremote-relay.onrender.com/ws", FPS: 10, Quality: 60, Scale: 0.75, PIN: ""}
+	c := &Config{Server: "wss://swremote-relay.onrender.com/ws", FPS: 12, Quality: 70, Scale: 0.8, PIN: ""}
 	if hn, err := os.Hostname(); err == nil {
 		c.Name = hn
 	}
@@ -227,14 +228,14 @@ func loadConfig() *Config {
 	if c.PIN == "" {
 		c.PIN = randomPIN()
 	}
-	if c.FPS < 1 || c.FPS > 25 {
-		c.FPS = 10
+	if c.FPS < 1 || c.FPS > 20 {
+		c.FPS = 12
 	}
 	if c.Quality < 10 || c.Quality > 90 {
-		c.Quality = 60
+		c.Quality = 70
 	}
 	if c.Scale < 0.25 || c.Scale > 1 {
-		c.Scale = 0.75
+		c.Scale = 0.8
 	}
 	_ = os.WriteFile(configPath(), mustJSON(c), 0600)
 	return c
@@ -253,7 +254,7 @@ func mustJSON(v any) []byte {
 
 // ---------------- capture ----------------
 
-func grabFrame(cfg *Config) ([]byte, int, int) {
+func grabFrame(cfg *Config, quality int) ([]byte, int, int) {
 	bounds := screenshot.GetDisplayBounds(0)
 	img, err := screenshot.CaptureRect(bounds)
 	if err != nil {
@@ -268,7 +269,7 @@ func grabFrame(cfg *Config) ([]byte, int, int) {
 		src = dst
 	}
 	var buf bytes.Buffer
-	_ = jpeg.Encode(&buf, src, &jpeg.Options{Quality: cfg.Quality})
+	_ = jpeg.Encode(&buf, src, &jpeg.Options{Quality: clampInt(quality, 10, 95)})
 	return buf.Bytes(), sw, sh
 }
 
@@ -373,17 +374,33 @@ func handleFileChunk(data []byte) {
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "--uninstall" {
+		initLog()
 		doUninstall()
 		return
 	}
+	initLog()
 	cfg = loadConfig()
+	log("ID %s, server %s", cfg.DeviceID, cfg.Server)
 
 	// network loop runs in the background; the GUI owns the main thread
-	go func() {
+	safeGo("netloop", func() {
+		// keep-alive: periodic HTTPS hits stop the free relay from sleeping
+		safeGo("keepalive", func() {
+			c := &http.Client{Timeout: 20 * time.Second}
+			for {
+				time.Sleep(10 * time.Minute)
+				if r, err := c.Get(serverHTTPBase() + "/api/health"); err != nil {
+					log("keepalive failed: %v", err)
+				} else {
+					r.Body.Close()
+				}
+			}
+		})
 		backoff := 2 * time.Second
 		for {
 			guiSetStatus("Connecting to relay…", false)
 			if err := runSession(cfg); err != nil {
+				log("session ended: %v", err)
 				guiSetStatus("Connection lost — retrying…", false)
 			}
 			time.Sleep(backoff)
@@ -391,13 +408,14 @@ func main() {
 				backoff *= 2
 			}
 		}
-	}()
+	})
 
 	runGUI() // blocks until the window is closed
+	log("window closed, exiting")
 }
 
 func runSession(cfg *Config) error {
-	dialer := websocket.Dialer{HandshakeTimeout: 15 * time.Second}
+	dialer := websocket.Dialer{HandshakeTimeout: 60 * time.Second} // free relay may be waking up
 	ws, _, err := dialer.Dial(cfg.Server, nil)
 	if err != nil {
 		return err
@@ -417,9 +435,18 @@ func runSession(cfg *Config) error {
 	stop := make(chan struct{})
 	defer close(stop)
 
-	// screen sender
-	go func() {
+	// screen sender — adaptive quality: raises JPEG quality when the
+	// network is fast, lowers it when frames start lagging
+	safeGo("sender", func() {
 		interval := time.Second / time.Duration(cfg.FPS)
+		maxQ := clampInt(cfg.Quality, 30, 90)
+		q := maxQ
+		if q > 70 {
+			q = 70 // start balanced, adapt up from here
+		}
+		var winStart = time.Now()
+		var winTotal time.Duration
+		var winCount int
 		for {
 			select {
 			case <-stop:
@@ -427,7 +454,7 @@ func runSession(cfg *Config) error {
 			default:
 			}
 			start := time.Now()
-			data, _, _ := grabFrame(cfg)
+			data, _, _ := grabFrame(cfg, q)
 			if data != nil {
 				pkt := make([]byte, 0, len(data)+1)
 				pkt = append(pkt, 0x01)
@@ -437,8 +464,27 @@ func runSession(cfg *Config) error {
 					return
 				}
 			}
+			elapsed := time.Since(start)
+			winTotal += elapsed
+			winCount++
+			// re-tune every 2 seconds based on average frame cost
+			if time.Since(winStart) > 2*time.Second && winCount > 0 {
+				avg := winTotal / time.Duration(winCount)
+				if avg < 70*time.Millisecond && q < maxQ {
+					q += 5
+					if q > maxQ {
+						q = maxQ
+					}
+				} else if avg > 180*time.Millisecond && q > 30 {
+					q -= 10
+					if q < 30 {
+						q = 30
+					}
+				}
+				winStart, winTotal, winCount = time.Now(), 0, 0
+			}
 			// adaptive: if sending took longer than the interval, skip sleeping (drop lag)
-			if elapsed := time.Since(start); elapsed < interval {
+			if elapsed < interval {
 				select {
 				case <-stop:
 					return
@@ -446,10 +492,10 @@ func runSession(cfg *Config) error {
 				}
 			}
 		}
-	}()
+	})
 
 	// heartbeat
-	go func() {
+	safeGo("heartbeat", func() {
 		t := time.NewTicker(20 * time.Second)
 		defer t.Stop()
 		for {
@@ -461,7 +507,7 @@ func runSession(cfg *Config) error {
 				_ = ws.WriteMessage(websocket.TextMessage, []byte(`{"t":"ping"}`))
 			}
 		}
-	}()
+	})
 
 	for {
 		mt, data, err := ws.ReadMessage()
@@ -505,7 +551,17 @@ func runSession(cfg *Config) error {
 			lockWorkstation()
 		case "viewer_joined":
 			notify("SWRemote", "Someone connected to this PC")
+			if n, ok := msg["viewers"].(float64); ok {
+				guiSetViewers(int(n))
+			}
 			guiSetStatus("Viewer connected — sharing screen", true)
+		case "viewer_left":
+			if n, ok := msg["viewers"].(float64); ok {
+				guiSetViewers(int(n))
+				if n == 0 {
+					guiSetStatus("Online — waiting for viewers…", true)
+				}
+			}
 		}
 	}
 }

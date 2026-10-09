@@ -2,8 +2,10 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"sync"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -71,6 +73,7 @@ const (
 	WM_CLOSE            = 16
 	WM_COMMAND          = 273
 	WM_CTLCOLORSTATIC   = 312
+	WM_TIMER            = 0x0113
 	WM_APP              = 0x8000
 	BN_CLICKED          = 0
 	TRANSPARENT         = 1
@@ -111,6 +114,8 @@ const (
 	ctlProg     = 113
 	ctlQuit     = 114
 	ctlVer      = 115
+	ctlCopyID   = 116
+	ctlMeta     = 117
 )
 
 type wndClassExW struct {
@@ -157,10 +162,18 @@ type triVertex struct {
 	r, g, b, a    uint16
 }
 
+type iccEx struct {
+	size uint32
+	icc  uint32
+}
+
 type gradientRect struct {
 	upperLeft  uint32
 	lowerRight uint32
 }
+
+// keep the window-procedure callback alive for the life of the process
+var wndProcCb = windows.NewCallback(wndProc)
 
 // ---------- state ----------
 type guiState struct {
@@ -170,11 +183,13 @@ type guiState struct {
 	progress   int  // -1 = hidden
 	updBtnText string
 	updBtnOn   bool
+	viewers    int
+	started    time.Time
 }
 
 var (
 	gHWND    uintptr
-	gState   = &guiState{statusText: "Starting…", progress: -1, updBtnText: "Check for Updates", updBtnOn: true}
+	gState   = &guiState{statusText: "Starting…", progress: -1, updBtnText: "Check for Updates", updBtnOn: true, started: time.Now()}
 	gCtl     = map[int]uintptr{}
 	gWhiteBr uintptr
 	gFonts   = map[string]uintptr{}
@@ -256,7 +271,7 @@ func applyStatus() {
 	}
 }
 
-var grayLabels = map[int]bool{ctlIDLabel: true, ctlPINLabel: true, ctlLinkLbl: true, ctlVer: true}
+var grayLabels = map[int]bool{ctlIDLabel: true, ctlPINLabel: true, ctlLinkLbl: true, ctlVer: true, ctlMeta: true}
 
 func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 	switch uint32(msg) {
@@ -345,6 +360,9 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 			pEnableWindow.Call(h, en)
 		}
 		return 0
+	case WM_TIMER:
+		refreshMeta()
+		return 0
 	case WM_COMMAND:
 		id := int(wp & 0xFFFF)
 		code := int((wp >> 16) & 0xFFFF)
@@ -359,6 +377,7 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 
 var pEnableWindow = u32.NewProc("EnableWindow")
 var pInvalidateRect = u32.NewProc("InvalidateRect")
+var pSetTimer = u32.NewProc("SetTimer")
 
 func msgBox(title, text string, flags uintptr) {
 	t := u16(title)
@@ -393,6 +412,9 @@ func copyToClipboard(s string) {
 
 func onClick(id int) {
 	switch id {
+	case ctlCopyID:
+		copyToClipboard(cfg.DeviceID)
+		guiSetStatus("ID copied to clipboard.", true)
 	case ctlCopy:
 		copyToClipboard(inviteLink())
 		guiSetStatus("Invite link copied — send it to them.", true)
@@ -422,6 +444,41 @@ func onClick(id int) {
 
 func inviteLink() string {
 	return "https://swremote-relay.onrender.com/?id=" + cfg.DeviceID
+}
+
+func guiSetViewers(n int) {
+	gState.mu.Lock()
+	gState.viewers = n
+	gState.mu.Unlock()
+	refreshMeta()
+}
+
+func fmtUptime(d time.Duration) string {
+	m := int(d.Minutes())
+	if m < 1 {
+		return "just started"
+	}
+	if m < 60 {
+		return fmt.Sprintf("up %dm", m)
+	}
+	h := m / 60
+	if h < 24 {
+		return fmt.Sprintf("up %dh %dm", h, m%60)
+	}
+	return fmt.Sprintf("up %dd %dh", h/24, h%24)
+}
+
+func refreshMeta() {
+	gState.mu.Lock()
+	v, st := gState.viewers, gState.started
+	gState.mu.Unlock()
+	vw := "no viewers"
+	if v == 1 {
+		vw = "1 viewer"
+	} else if v > 1 {
+		vw = fmt.Sprintf("%d viewers", v)
+	}
+	setText(ctlMeta, vw+"   •   "+fmtUptime(time.Since(st)))
 }
 
 func setAutoRun(on bool) {
@@ -463,8 +520,8 @@ func runGUI() {
 		}
 	}
 
-	comInit := [1]uint32{0x00000002 /*ICC_PROGRESS_CLASS*/}
-	pInitCommon.Call(uintptr(unsafe.Pointer(&comInit[0])))
+	icc := iccEx{size: 8, icc: 0x00000002 /* ICC_PROGRESS_CLASS */}
+	pInitCommon.Call(uintptr(unsafe.Pointer(&icc)))
 
 	gWhiteBr, _, _ = pCreateSolidBrush.Call(colorRef(255, 255, 255))
 	gFonts["title"] = mkFont("Segoe UI", 24, true)
@@ -479,7 +536,7 @@ func runGUI() {
 	clsName := u16("SWRemoteWindow")
 	wc := wndClassExW{
 		style:         3, // CS_HREDRAW|CS_VREDRAW
-		lpfnWndProc:   windows.NewCallback(wndProc),
+		lpfnWndProc:   wndProcCb,
 		hCursor:       cursor,
 		hbrBackground: gWhiteBr,
 		lpszClassName: clsName,
@@ -502,22 +559,24 @@ func runGUI() {
 
 	// controls (client coords)
 	mkCtl("STATIC", "YOUR ID", 0, 24, 122, 200, 20, ctlIDLabel, gFonts["lbl"])
-	mkCtl("STATIC", cfg.DeviceID, SS_LEFT, 24, 144, 380, 44, ctlIDValue, gFonts["id"])
+	mkCtl("STATIC", cfg.DeviceID, SS_LEFT, 24, 144, 272, 44, ctlIDValue, gFonts["id"])
+	mkCtl("BUTTON", "Copy ID", BS_PUSHBUTTON, 304, 148, 100, 34, ctlCopyID, gFonts["norm"])
 	mkCtl("STATIC", "PIN", 0, 200, 200, 60, 20, ctlPINLabel, gFonts["lbl"])
 	mkCtl("STATIC", cfg.PIN, SS_LEFT, 24, 222, 220, 34, ctlPINValue, gFonts["pin"])
 	mkCtl("BUTTON", "New PIN", BS_PUSHBUTTON, 300, 220, 104, 32, ctlNewPIN, gFonts["norm"])
 	mkCtl("STATIC", "●", SS_LEFT, 24, 268, 22, 24, ctlDot, gFonts["norm"])
 	mkCtl("STATIC", "Starting…", SS_LEFT, 50, 270, 354, 22, ctlStatus, gFonts["norm"])
-	mkCtl("STATIC", "INVITE LINK", 0, 306, 200, 200, 20, ctlLinkLbl, gFonts["lbl"])
-	mkCtl("EDIT", inviteLink(), WS_BORDER|ES_READONLY|ES_AUTOHSCROLL, 24, 328, 290, 30, ctlLinkEdit, gFonts["norm"])
-	mkCtl("BUTTON", "Copy", BS_PUSHBUTTON, 322, 326, 82, 34, ctlCopy, gFonts["norm"])
-	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON, 24, 378, 380, 40, ctlUpdate, gFonts["norm"])
-	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 24, 432, 380, 24, ctlAutoRun, gFonts["norm"])
-	mkCtl("msctls_progress32", "", 0, 24, 464, 380, 18, ctlProg, 0)
+	mkCtl("STATIC", "no viewers   •   just started", SS_LEFT, 24, 294, 380, 20, ctlMeta, gFonts["small"])
+	mkCtl("STATIC", "INVITE LINK", 0, 320, 200, 200, 20, ctlLinkLbl, gFonts["lbl"])
+	mkCtl("EDIT", inviteLink(), WS_BORDER|ES_READONLY|ES_AUTOHSCROLL, 24, 342, 290, 30, ctlLinkEdit, gFonts["norm"])
+	mkCtl("BUTTON", "Copy", BS_PUSHBUTTON, 322, 340, 82, 34, ctlCopy, gFonts["norm"])
+	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON, 24, 392, 380, 40, ctlUpdate, gFonts["norm"])
+	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 24, 446, 380, 24, ctlAutoRun, gFonts["norm"])
+	mkCtl("msctls_progress32", "", 0, 24, 478, 380, 18, ctlProg, 0)
 	pSendMessageW.Call(gCtl[ctlProg], PBM_SETRANGE32, 0, 100)
 	pShowWindow.Call(gCtl[ctlProg], 0)
-	mkCtl("BUTTON", "Quit", BS_PUSHBUTTON, 24, 500, 380, 38, ctlQuit, gFonts["norm"])
-	mkCtl("STATIC", "v"+appVersion+"   •   swremote-relay.onrender.com", SS_LEFT, 24, 556, 380, 18, ctlVer, gFonts["small"])
+	mkCtl("BUTTON", "Quit", BS_PUSHBUTTON, 24, 514, 380, 38, ctlQuit, gFonts["norm"])
+	mkCtl("STATIC", "v"+appVersion+"   •   swremote-relay.onrender.com", SS_LEFT, 24, 566, 380, 18, ctlVer, gFonts["small"])
 
 	// gray labels are colored via WM_CTLCOLORSTATIC (grayLabels set)
 	if getAutoRun() {
@@ -525,6 +584,8 @@ func runGUI() {
 	}
 
 	applyStatus()
+	refreshMeta()
+	pSetTimer.Call(hwnd, 1, 30000, 0) // refresh uptime every 30s
 	pShowWindow.Call(hwnd, SW_SHOW)
 	pUpdateWindow.Call(hwnd)
 

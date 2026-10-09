@@ -14,6 +14,9 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -21,7 +24,7 @@
 <!-- ======= SCREEN: server (rarely seen — address is built in) ======= -->
 <section id="scr-login" class="screen">
   <div class="card login-card">
-    <div class="logo"><span class="logo-mark">S</span></div>
+    <div class="logo"><img class="logo-img" src="logo.png" alt="SWRemote"></div>
     <h1>SWRemote</h1>
     <p class="sub">Remote desktop by SWInfoSystems</p>
     <label for="server-url">Relay server</label>
@@ -34,7 +37,7 @@
 <!-- ======= SCREEN: device list ======= -->
 <section id="scr-devices" class="screen">
   <header class="topbar">
-    <div class="brand"><span class="logo-mark sm">S</span><span>SWRemote</span></div>
+    <div class="brand"><img class="logo-img sm" src="logo.png" alt=""><span>SWRemote</span></div>
     <div class="top-actions">
       <button id="btn-install" class="ghost hidden">⤓ Install app</button>
       <button id="btn-change-server" class="ghost">Server</button>
@@ -69,8 +72,13 @@
     <div class="sess-spacer"></div>
   </header>
   <div class="stage">
-    <canvas id="screen"></canvas>
+    <div id="zoomwrap"><canvas id="screen"></canvas></div>
     <div id="sess-status" class="sess-status">Connecting…</div>
+    <div id="zoomctl" class="zoomctl">
+      <button id="zoom-out" title="Zoom out">−</button>
+      <button id="zoom-label" title="Reset zoom">100%</button>
+      <button id="zoom-in" title="Zoom in">+</button>
+    </div>
   </div>
   <div id="keybar" class="keybar hidden">
     <button data-key="esc">Esc</button><button data-key="tab">Tab</button>
@@ -110,9 +118,9 @@
   <!-- quality popover -->
   <div id="quality-pop" class="popover hidden">
     <label for="q-quality">Quality</label>
-    <select id="q-quality"><option value="30">Low — fast</option><option value="55" selected>Medium</option><option value="75">High — sharp</option></select>
+    <select id="q-quality"><option value="30">Low — fast</option><option value="65" selected>Medium</option><option value="85">High — sharp</option></select>
     <label for="q-scale">Size</label>
-    <select id="q-scale"><option value="0.5">Small</option><option value="0.75" selected>Normal</option><option value="1">Full</option></select>
+    <select id="q-scale"><option value="0.5">Small</option><option value="0.8" selected>Normal</option><option value="1">Full</option></select>
   </div>
   <div id="toast" class="toast"></div>
 </section>
@@ -120,7 +128,7 @@
 <!-- PIN modal -->
 <div id="pin-modal" class="modal hidden">
   <div class="modal-card">
-    <div class="pin-dev"><span class="logo-mark sm">S</span><div><b id="pin-title">Enter PIN</b><div class="pin-id" id="pin-devid"></div></div></div>
+    <div class="pin-dev"><img class="logo-img sm" src="logo.png" alt=""><div><b id="pin-title">Enter PIN</b><div class="pin-id" id="pin-devid"></div></div></div>
     <input id="pin-input" type="password" inputmode="numeric" maxlength="32" placeholder="••••••" autocomplete="off">
     <div class="modal-actions">
       <button id="pin-cancel" class="ghost">Cancel</button>

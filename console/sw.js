@@ -1,8 +1,9 @@
 /* SWRemote console service worker — offline shell cache + offline fallback */
-const CACHE = "swremote-v2";
+const CACHE = "swremote-v3";
 const ASSETS = [
   "./", "./index.html", "./offline.html", "./style.css", "./app.js",
-  "./manifest.json", "./icon-192.png", "./icon-512.png",
+  "./manifest.json", "./logo.png",
+  "./icon-192.png", "./icon-512.png",
   "./icon-maskable-192.png", "./icon-maskable-512.png",
 ];
 self.addEventListener("install", (e) => {

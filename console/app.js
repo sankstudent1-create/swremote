@@ -145,6 +145,8 @@ function startSession(d, pin) {
   ws.onclose = () => setStatus("Disconnected.", true);
   ws.onerror = () => setStatus("Connection error.", true);
   bindCanvasInput();
+  ptrs.clear(); gesture = null; gestureActive = false;
+  resetZoom();
 }
 function closeWs() { try { ws && ws.close(); } catch {} ws = null; }
 $("btn-disconnect").onclick = () => { closeWs(); show("scr-devices"); loadDevices(); };
@@ -181,17 +183,43 @@ function handleBinary(u8) {
 const canvas = $("screen"), ctx = canvas.getContext("2d");
 function sizeCanvas(w, h) { frameW = w; frameH = h; canvas.width = w; canvas.height = h; fitCanvas(true); }
 let lastStageW = 0, lastStageH = 0;
+let zoom = 1, fitScale = 1;
+function stageEl() { return document.querySelector(".stage"); }
+function applyZoomSize() {
+  if (!frameW || !fitScale) return;
+  canvas.style.width = Math.max(1, Math.floor(frameW * fitScale * zoom)) + "px";
+  canvas.style.height = Math.max(1, Math.floor(frameH * fitScale * zoom)) + "px";
+}
 function fitCanvas(force) {
-  const stage = document.querySelector(".stage");
+  const stage = stageEl();
   const r = stage.getBoundingClientRect();
   // skip tiny/zero layouts (page still settling) and repeat work
   if (r.width < 10 || r.height < 10) return;
   if (!force && Math.abs(r.width - lastStageW) < 2 && Math.abs(r.height - lastStageH) < 2) return;
   lastStageW = r.width; lastStageH = r.height;
   if (!frameW) return;
-  const s = Math.min(r.width / frameW, r.height / frameH);
-  canvas.style.width = Math.floor(frameW * s) + "px";
-  canvas.style.height = Math.floor(frameH * s) + "px";
+  fitScale = Math.min(r.width / frameW, r.height / frameH);
+  applyZoomSize();
+}
+function zoomTo(z, vx, vy) {
+  const st = stageEl();
+  const r = st.getBoundingClientRect();
+  const ax = (vx === undefined ? r.width / 2 : vx - r.left);
+  const ay = (vy === undefined ? r.height / 2 : vy - r.top);
+  const fx = (st.scrollLeft + ax) / Math.max(1, st.scrollWidth);
+  const fy = (st.scrollTop + ay) / Math.max(1, st.scrollHeight);
+  zoom = Math.min(4, Math.max(1, z));
+  applyZoomSize();
+  st.scrollLeft = fx * st.scrollWidth - ax;
+  st.scrollTop = fy * st.scrollHeight - ay;
+  const lbl = $("zoom-label");
+  if (lbl) lbl.textContent = Math.round(zoom * 100) + "%";
+}
+function resetZoom() {
+  zoom = 1; applyZoomSize();
+  const st = stageEl(); st.scrollLeft = 0; st.scrollTop = 0;
+  const lbl = $("zoom-label");
+  if (lbl) lbl.textContent = "100%";
 }
 window.addEventListener("resize", () => fitCanvas(true));
 
@@ -229,6 +257,62 @@ $("btn-full").onclick = () => {
 };
 document.addEventListener("fullscreenchange", () => setTimeout(() => fitCanvas(true), 200));
 
+/* ---------- pinch zoom + two-finger pan (mobile) ---------- */
+let gesture = null, gestureActive = false;
+const ptrs = new Map();
+function bindGestures() {
+  const st = stageEl();
+  st.addEventListener("pointerdown", (e) => {
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (ptrs.size === 2) {
+      const [a, b] = [...ptrs.values()];
+      gesture = {
+        startDist: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+        startZoom: zoom,
+        prevMid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+        t0: Date.now(), maxMove: 0,
+      };
+      gestureActive = true;
+    }
+  });
+  st.addEventListener("pointermove", (e) => {
+    if (!ptrs.has(e.pointerId)) return;
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (gesture && ptrs.size >= 2) {
+      const [a, b] = [...ptrs.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const move = Math.hypot(mid.x - gesture.prevMid.x, mid.y - gesture.prevMid.y);
+      gesture.maxMove = Math.max(gesture.maxMove, move, Math.abs(dist - gesture.startDist));
+      st.scrollLeft -= (mid.x - gesture.prevMid.x);
+      st.scrollTop -= (mid.y - gesture.prevMid.y);
+      const nz = gesture.startZoom * (dist / gesture.startDist);
+      if (Math.abs(nz - zoom) > 0.02) zoomTo(nz, mid.x, mid.y);
+      gesture.prevMid = mid;
+      e.preventDefault();
+    }
+  });
+  const endPtr = (e) => {
+    ptrs.delete(e.pointerId);
+    if (gesture && ptrs.size === 0) {
+      // quick two-finger tap = right click
+      if (Date.now() - gesture.t0 < 350 && gesture.maxMove < 12) {
+        const p = rel({ clientX: gesture.prevMid.x, clientY: gesture.prevMid.y });
+        sendInput({ k: "move", ...p });
+        sendInput({ k: "down", b: "right" });
+        sendInput({ k: "up", b: "right" });
+      }
+      gesture = null;
+    }
+    if (ptrs.size < 2) gestureActive = false;
+  };
+  st.addEventListener("pointerup", endPtr);
+  st.addEventListener("pointercancel", endPtr);
+  $("zoom-in").onclick = () => zoomTo(zoom * 1.3);
+  $("zoom-out").onclick = () => zoomTo(zoom / 1.3);
+  $("zoom-label").onclick = resetZoom;
+}
+
 /* ---------- input: mouse + touch ---------- */
 function rel(e) {
   const r = canvas.getBoundingClientRect();
@@ -242,6 +326,7 @@ function sendInput(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ 
 let touchState = null;
 function bindCanvasInput() {
   canvas.onpointerdown = (e) => {
+    if (gestureActive) return;
     canvas.setPointerCapture(e.pointerId);
     const p = rel(e);
     if (e.pointerType === "touch") { touchState = { x: e.clientX, y: e.clientY, moved: false, t: Date.now(), two: false }; }
@@ -251,6 +336,7 @@ function bindCanvasInput() {
     e.preventDefault();
   };
   canvas.onpointermove = (e) => {
+    if (gestureActive) return;
     if (touchState && Math.hypot(e.clientX - touchState.x, e.clientY - touchState.y) > 12) touchState.moved = true;
     const now = performance.now();
     if (now - lastMove < 40) return;
@@ -258,6 +344,7 @@ function bindCanvasInput() {
     sendInput({ k: "move", ...rel(e) });
   };
   canvas.onpointerup = (e) => {
+    if (gestureActive) return;
     const p = rel(e);
     if (e.pointerType === "touch" && touchState) {
       const dt = Date.now() - touchState.t;
@@ -274,19 +361,8 @@ function bindCanvasInput() {
     }
   };
   canvas.onpointercancel = () => { touchState = null; };
-  canvas.oncontextmenu = (e) => e.preventDefault(); // long-press/right handled via two-finger tap below
+  canvas.oncontextmenu = (e) => e.preventDefault();
   canvas.onwheel = (e) => { sendInput({ k: "scroll", dx: 0, dy: Math.sign(e.deltaY) * -3 }); e.preventDefault(); };
-  // two-finger tap = right click
-  let lastTouchEnd = 0, touchCount = 0;
-  canvas.addEventListener("touchstart", (e) => { touchCount = e.touches.length; }, { passive: true });
-  canvas.addEventListener("touchend", (e) => {
-    if (touchCount === 2 && e.touches.length === 0) {
-      const t = e.changedTouches[0], p = rel(t);
-      sendInput({ k: "move", ...p });
-      sendInput({ k: "down", b: "right" }); sendInput({ k: "up", b: "right" });
-    }
-    touchCount = 0;
-  }, { passive: true });
 }
 
 /* ---------- keyboard ---------- */
@@ -416,4 +492,5 @@ $("btn-install").onclick = async () => {
   deferredInstall = null;
   $("btn-install").classList.add("hidden");
 };
+bindGestures();
 initServer();

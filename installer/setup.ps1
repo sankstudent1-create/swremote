@@ -40,8 +40,7 @@ $IsUpdate   = (Test-Path (Join-Path $InstallDir $ExeName)) -and (-not $Uninstall
         <Grid Margin="26,0,20,0">
           <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
             <Border Width="58" Height="58" CornerRadius="17" Background="White">
-              <TextBlock Text="S" FontSize="30" FontWeight="Bold" Foreground="#2F7DE1"
-                         HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              <Image Name="HeadLogo" Stretch="Uniform" Margin="7"/>
             </Border>
             <StackPanel Margin="16,0,0,0" VerticalAlignment="Center">
               <TextBlock Name="HeadTitle" Text="Install SWRemote" FontSize="23" FontWeight="Bold" Foreground="White"/>
@@ -58,7 +57,11 @@ $IsUpdate   = (Test-Path (Join-Path $InstallDir $ExeName)) -and (-not $Uninstall
       <Grid Grid.Row="1" Margin="34,26,34,10">
         <!-- welcome -->
         <StackPanel Name="PageWelcome" Visibility="Visible">
-          <TextBlock Name="WelcomeHead" Text="Welcome!" FontSize="20" FontWeight="Bold" Foreground="#16233A"/>
+          <Border CornerRadius="14" Margin="0,0,0,6" Background="#F4F6FA">
+            <Image Name="WelcomeArt" Stretch="UniformToFill" Height="150"/>
+            <Border.Clip><RectangleGeometry Rect="0,0,420,150" RadiusX="14" RadiusY="14"/></Border.Clip>
+          </Border>
+          <TextBlock Name="WelcomeHead" Text="Welcome!" FontSize="20" FontWeight="Bold" Foreground="#16233A" Margin="0,8,0,0"/>
           <TextBlock Name="WelcomeText" FontSize="14" Foreground="#5A6B85" Margin="0,10,0,0" TextWrapping="Wrap" LineHeight="24"/>
           <Border Background="#E9F1FD" CornerRadius="12" Padding="16" Margin="0,22,0,0">
             <StackPanel>
@@ -240,6 +243,20 @@ function Uninstall-SWRemote {
 # ---------- wire up ----------
 $script:stage = "welcome"
 $script:finished = ""
+
+function Set-Img($name, $file) {
+  $p = Join-Path $PSScriptRoot $file
+  if (Test-Path $p) {
+    $bmp = New-Object System.Windows.Media.Imaging.BitmapImage
+    $bmp.BeginInit()
+    $bmp.UriSource = New-Object System.Uri($p)
+    $bmp.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+    $bmp.EndInit()
+    (& $find $name).Source = $bmp
+  }
+}
+Set-Img "HeadLogo" "logo-mark.png"
+Set-Img "WelcomeArt" "install-art.png"
 
 if ($Uninstall) {
   (& $find "HeadTitle").Text = "Uninstall SWRemote"

@@ -16,6 +16,12 @@ var setupPS1 string
 //go:embed SWRemote-Agent.exe
 var agentExe []byte
 
+//go:embed install-art.png
+var installArt []byte
+
+//go:embed logo-mark.png
+var logoMark []byte
+
 func main() {
 	tmp, err := os.MkdirTemp("", "SWRemoteSetup")
 	if err != nil {
@@ -23,11 +29,16 @@ func main() {
 	}
 	defer os.RemoveAll(tmp)
 
-	if err := os.WriteFile(filepath.Join(tmp, "setup.ps1"), []byte(setupPS1), 0644); err != nil {
-		return
+	files := map[string][]byte{
+		"setup.ps1":        []byte(setupPS1),
+		"SWRemote-Agent.exe": agentExe,
+		"install-art.png":  installArt,
+		"logo-mark.png":    logoMark,
 	}
-	if err := os.WriteFile(filepath.Join(tmp, "SWRemote-Agent.exe"), agentExe, 0644); err != nil {
-		return
+	for name, data := range files {
+		if err := os.WriteFile(filepath.Join(tmp, name), data, 0644); err != nil {
+			return
+		}
 	}
 
 	args := []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(tmp, "setup.ps1")}
