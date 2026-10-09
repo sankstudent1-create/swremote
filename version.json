@@ -1,5 +1,5 @@
 {
-  "version": "3.1.0",
-  "notes": "Phase 1 accounts: sign up / sign in with email + password (Supabase). Your claimed devices show privately on your dashboard and connect with one tap — no PIN. Devices are invisible to everyone else. ID+PIN quick connect still works for guests. The PC app shows a link code to claim it.",
+  "version": "3.2.0",
+  "notes": "Design edition: brand-new dashboard with sidebar (Devices, Downloads, Account), device search, SVG iconography, and a downloads page with installer + portable builds. The PC app gets a card-based window and a fixed New-PIN freeze. Relay now self-heals missing user profiles on claim.",
   "url": "https://swremote-relay.onrender.com/download/agent"
 }

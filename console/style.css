@@ -301,3 +301,69 @@ button:focus-visible, input:focus-visible, select:focus-visible{
   background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath d='M4 2 L4 14 L8 10.5 L10 15 L12 14 L10 9.5 L14 9 Z' fill='%23ffffff' stroke='%2316233a' stroke-width='1.4'/%3E%3C/svg%3E") no-repeat;
   filter:drop-shadow(0 1px 2px rgba(0,0,0,.5));
 }
+
+/* ======= Dashboard shell (v4 design) ======= */
+#scr-devices { display: flex; max-width: none; padding: 0; }
+.side {
+  width: 248px; flex-shrink: 0; background: #fff; border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; padding: 20px 14px; position: sticky; top: 0; height: 100dvh;
+}
+.side-brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; padding: 6px 10px 18px; color: var(--ink); }
+.side-nav { display: flex; flex-direction: column; gap: 4px; }
+.side-nav button {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; border: 0;
+  background: none; border-radius: 12px; font: inherit; font-weight: 600; font-size: 15px;
+  color: var(--muted); cursor: pointer; text-align: left; transition: all .18s;
+}
+.side-nav button svg { width: 20px; height: 20px; flex-shrink: 0; }
+.side-nav button:hover { background: #f1f6fd; color: var(--ink); }
+.side-nav button.active { background: linear-gradient(135deg, #e3f0fe, #f3e9fd); color: var(--blue-d); }
+.side-foot { margin-top: auto; padding: 12px 10px 0; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+.dash-main { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100dvh; overflow-y: auto; }
+.dash-page { padding: 28px clamp(16px, 4vw, 44px) 60px; max-width: 1080px; width: 100%; margin: 0 auto; }
+.page-actions { display: flex; gap: 10px; align-items: center; }
+.searchbox {
+  display: flex; align-items: center; gap: 8px; background: #fff; border: 1.5px solid var(--border);
+  border-radius: 14px; padding: 0 14px; height: 46px; transition: border .18s, box-shadow .18s;
+}
+.searchbox:focus-within { border-color: var(--blue); box-shadow: 0 0 0 4px rgba(47,125,225,.14); }
+.searchbox svg { width: 18px; height: 18px; color: var(--muted); flex-shrink: 0; }
+.searchbox input { border: 0; outline: 0; background: none; font: inherit; font-size: 15px; width: 150px; padding: 0; margin: 0; }
+.btn-add { width: auto; margin: 0; padding: 13px 20px; display: inline-flex; align-items: center; gap: 8px; font-size: 15px; }
+.btn-add span { font-size: 18px; line-height: 1; }
+
+/* downloads */
+.dl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin-bottom: 22px; }
+.dl-card { text-align: left; display: flex; flex-direction: column; }
+.dl-ico { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center;
+  background: linear-gradient(135deg, #e3f0fe, #f3e9fd); color: var(--blue-d); margin-bottom: 14px; }
+.dl-ico svg { width: 26px; height: 26px; }
+.dl-card h3 { font-size: 18px; margin-bottom: 8px; }
+.dl-desc { color: var(--muted); font-size: 14px; line-height: 1.6; margin-bottom: 18px; flex: 1; }
+.dl-btn { text-decoration: none; text-align: center; display: block; margin: 0; }
+.dl-meta { margin-top: 12px; font-size: 12.5px; color: var(--muted); text-align: center; }
+
+@media (max-width: 760px) {
+  #scr-devices { flex-direction: column; }
+  .side { width: 100%; height: auto; position: static; flex-direction: row; align-items: center; padding: 10px 12px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .side-brand { padding: 0 8px 0 0; font-size: 16px; }
+  .side-nav { flex-direction: row; flex: 1; gap: 2px; overflow-x: auto; }
+  .side-nav button { padding: 10px 12px; font-size: 14px; white-space: nowrap; }
+  .side-nav button span { display: none; }
+  .side-nav button svg { width: 22px; height: 22px; }
+  .side-foot { display: none; }
+  .dash-main { height: auto; overflow: visible; }
+  .page-head { flex-direction: column; align-items: stretch; gap: 12px; }
+  .page-actions { flex-wrap: wrap; }
+  .searchbox { flex: 1; }
+}
+
+/* device card icon (SVG) + avatar */
+.dev-ico svg { width: 24px; height: 24px; color: var(--blue-d); }
+.dev-ico { display: grid; place-items: center; }
+.avatar {
+  width: 52px; height: 52px; border-radius: 50%; flex-shrink: 0;
+  display: grid; place-items: center; font-weight: 800; font-size: 22px; color: #fff;
+  background: linear-gradient(135deg, var(--blue), #a855f7);
+}
+#account-card .ghost, #account-card .primary { width: 100%; }

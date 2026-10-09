@@ -40,7 +40,78 @@ $("btn-save-server").onclick = async () => {
   if (sbOn() && !sbSignedIn()) enterAuth();
   else enterDevices();
 };
-$("btn-change-server").onclick = () => { show("scr-login"); };
+/* ---------- Dashboard navigation (v4) ---------- */
+function navTo(page) {
+  document.querySelectorAll(".side-nav button").forEach(b => b.classList.toggle("active", b.dataset.page === page));
+  ["devices", "downloads", "account"].forEach(p => $("page-" + p).classList.toggle("hidden", p !== page));
+  if (page === "downloads") loadDownloadMeta();
+  if (page === "account") renderAccountPage();
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll(".side-nav button").forEach(b => { b.onclick = () => navTo(b.dataset.page); });
+$("dev-search").addEventListener("input", renderDeviceList);
+
+async function loadDownloadMeta() {
+  try {
+    const v = await (await fetch(serverBase() + "/api/version")).json();
+    $("dl-version").textContent = v.version ? "Current release: v" + v.version : "";
+  } catch {}
+  for (const [kind, el] of [["agent", "dl-agent-meta"], ["setup", "dl-setup-meta"]]) {
+    try {
+      const r = await fetch(serverBase() + "/download/" + kind, { method: "HEAD" });
+      const len = r.headers.get("content-length");
+      $(el).textContent = r.ok && len ? "Windows 64-bit · " + (len / 1048576).toFixed(1) + " MB" : "Windows 64-bit";
+    } catch { $(el).textContent = "Windows 64-bit"; }
+  }
+}
+
+function renderAccountPage() {
+  const c = $("account-card");
+  const signed = sbOn() && sbSignedIn();
+  c.innerHTML = `
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:18px;">
+      <div class="avatar">${signed ? esc((sbSession.email || "G")[0].toUpperCase()) : "?"}</div>
+      <div><div style="font-weight:800;font-size:17px;">${signed ? esc(sbSession.email) : "Guest"}</div>
+      <div class="page-sub">${signed ? "Signed in" : "Browsing without an account"}</div></div>
+    </div>
+    ${signed
+      ? `<button class="ghost" id="btn-signout2" style="width:100%;">Sign out</button>`
+      : `<button class="primary" id="btn-signin2" style="margin:0;">Sign in / create account</button>`}
+    <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border);">
+      <div class="page-sub" style="margin-bottom:8px;">Relay server</div>
+      <div style="display:flex;gap:8px;">
+        <input id="acct-server" style="margin:0;" value="${esc(serverBase())}">
+        <button class="ghost" id="btn-acct-server" style="width:auto;margin:0;padding:0 18px;white-space:nowrap;">Save</button>
+      </div>
+    </div>
+    <div style="margin-top:14px;"><button class="ghost hidden" id="btn-install2" style="width:100%;">⤓ Install SWRemote app</button></div>
+    <p class="hint" style="margin-top:14px;">SWRemote v4 · calm-light edition</p>`;
+  if (signed) $("btn-signout2").onclick = sbLogout;
+  else $("btn-signin2").onclick = enterAuth;
+  $("btn-acct-server").onclick = async () => {
+    const v = $("acct-server").value.trim().replace(/\/$/, "");
+    if (!v) return;
+    localStorage.setItem(LS_SERVER, v);
+    await sbInit();
+    toast("Server updated");
+    renderAccountPage(); renderSideUser();
+  };
+  if (deferredInstall) $("btn-install2").classList.remove("hidden");
+  $("btn-install2").onclick = async () => {
+    if (!deferredInstall) return;
+    deferredInstall.prompt();
+    await deferredInstall.userChoice.catch(() => {});
+    deferredInstall = null;
+    $("btn-install2").classList.add("hidden");
+  };
+}
+
+function renderSideUser() {
+  const el = $("side-user");
+  el.innerHTML = (sbOn() && sbSignedIn())
+    ? `Signed in as <b>${esc(sbSession.email)}</b>`
+    : `Guest mode`;
+}
 
 /* ---------- Supabase Auth (Phase 1: accounts) ---------- */
 let sbCfg = { url: null, anonKey: null };
@@ -123,7 +194,7 @@ $("auth-skip").onclick = (e) => { e.preventDefault(); enterDevices(); };
 $("auth-pass").addEventListener("keydown", (e) => { if (e.key === "Enter") doAuth(); });
 
 function enterAuth() { setAuthMode("in"); show("scr-auth"); }
-function enterDevices() { show("scr-devices"); renderAcctRow(); loadDevices(); }
+function enterDevices() { show("scr-devices"); renderSideUser(); navTo("devices"); loadDevices(); }
 function renderAcctRow() {
   const el = $("acct-row");
   const showAcct = sbOn();
@@ -131,11 +202,12 @@ function renderAcctRow() {
   $("manual-join").classList.toggle("hidden", !(showAcct && !sbSignedIn()));
   if (!showAcct) { el.innerHTML = ""; return; }
   el.innerHTML = sbSignedIn()
-    ? `Signed in as <b>${esc(sbSession.email)}</b> — <a href="#" id="link-signout">sign out</a>`
+    ? `Signed in as <b>${esc(sbSession.email)}</b> — manage everything from the <b>Account</b> tab, or <a href="#" id="link-signout">sign out</a>.`
     : `You're browsing as a guest — <a href="#" id="link-signin">sign in</a> to see your devices.`;
   const so = $("link-signout"), si = $("link-signin");
   if (so) so.onclick = (e) => { e.preventDefault(); sbLogout(); };
   if (si) si.onclick = (e) => { e.preventDefault(); enterAuth(); };
+  renderSideUser();
 }
 $("btn-claim").onclick = () => { $("claim-input").value = ""; $("claim-modal").classList.remove("hidden"); $("claim-input").focus(); };
 $("claim-cancel").onclick = () => $("claim-modal").classList.add("hidden");
@@ -206,12 +278,18 @@ async function loadDevices() {
       return;
     }
     list.innerHTML = "";
-    j.devices.forEach((d) => {
+    const q = ($("dev-search").value || "").trim().toLowerCase();
+    const shown = q ? j.devices.filter((d) => (d.name + " " + d.id).toLowerCase().includes(q)) : j.devices;
+    if (!shown.length) {
+      list.innerHTML = `<div class="empty"><span class="empty-ico">🔎</span><b>No matches.</b><br>Try a different search.</div>`;
+      return;
+    }
+    shown.forEach((d) => {
       const card = document.createElement("div");
       card.className = "dev-card" + (d.online ? "" : " offline");
       card.innerHTML = `
         <div class="dev-top">
-          <div class="dev-ico">💻</div>
+          <div class="dev-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
           <div><div class="dev-name">${esc(d.name)}</div><div class="dev-id">${esc(d.id)}</div></div>
         </div>
         <div class="dev-meta">
@@ -219,7 +297,7 @@ async function loadDevices() {
           <span class="dev-seen">${d.online ? "connected now" : "seen " + relTime(d.lastSeen)}</span>
         </div>
         <div class="dev-actions">
-          <button class="ghost btn-share">⤴ Share</button>
+          <button class="ghost btn-share">Share</button>
           <button class="primary btn-connect" ${d.online ? "" : "disabled"}>${d.mine ? "Open" : "Connect"}</button>
         </div>`;
       // own devices join with the account token — no PIN needed
@@ -662,17 +740,6 @@ $("btn-lock").onclick = () => { if (ws && confirm("Lock the remote PC now?")) ws
 /* ---------- PWA ---------- */
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 let deferredInstall = null;
-window.addEventListener("beforeinstallprompt", (e) => {
-  e.preventDefault();
-  deferredInstall = e;
-  $("btn-install").classList.remove("hidden");
-});
-$("btn-install").onclick = async () => {
-  if (!deferredInstall) return;
-  deferredInstall.prompt();
-  await deferredInstall.userChoice.catch(() => {});
-  deferredInstall = null;
-  $("btn-install").classList.add("hidden");
-};
+window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferredInstall = e; });
 bindGestures();
 boot();

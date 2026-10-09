@@ -56,45 +56,87 @@
   </div>
 </section>
 
-<!-- ======= SCREEN: device list ======= -->
+<!-- ======= SCREEN: dashboard (devices / downloads / account) ======= -->
 <section id="scr-devices" class="screen">
-  <header class="topbar">
-    <div class="brand"><img class="logo-img sm" src="logo.png" alt=""><span>SWRemote</span></div>
-    <div class="top-actions">
-      <button id="btn-install" class="ghost hidden">⤓ Install app</button>
-      <button id="btn-change-server" class="ghost">Server</button>
-    </div>
-  </header>
-  <main class="wrap">
-    <div class="page-head anim-rise">
-      <div>
-        <h2>My devices</h2>
-        <p class="page-sub" id="dev-count"></p>
+  <aside class="side">
+    <div class="side-brand"><img class="logo-img sm" src="logo.png" alt=""><span>SWRemote</span></div>
+    <nav class="side-nav">
+      <button data-page="devices" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg><span>Devices</span></button>
+      <button data-page="downloads"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>Downloads</span></button>
+      <button data-page="account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span>Account</span></button>
+    </nav>
+    <div class="side-foot" id="side-user"></div>
+  </aside>
+  <div class="dash-main">
+    <!-- DEVICES PAGE -->
+    <div id="page-devices" class="dash-page">
+      <div class="page-head anim-rise">
+        <div>
+          <h2>My devices</h2>
+          <p class="page-sub" id="dev-count"></p>
+        </div>
+        <div class="page-actions">
+          <div class="searchbox"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="dev-search" placeholder="Search devices…"></div>
+          <button id="btn-claim" class="primary btn-add hidden"><span>＋</span> Add device</button>
+          <button id="btn-refresh" class="icon-btn" title="Refresh">↻</button>
+        </div>
       </div>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <button id="btn-claim" class="ghost hidden" title="Add a device">＋ Add</button>
-        <button id="btn-refresh" class="icon-btn" title="Refresh">↻</button>
+      <div id="device-list" class="dev-grid"></div>
+      <div id="manual-join" class="how-card anim-rise d1 hidden">
+        <h3>Connect with ID + PIN</h3>
+        <div style="display:flex; gap:8px;">
+          <input id="manual-id" inputmode="numeric" placeholder="Device ID" style="margin:0;">
+          <button id="btn-manual" class="primary" style="width:auto; margin:0; padding:13px 22px;">Go</button>
+        </div>
+        <p class="hint" style="margin-top:10px;">Helping someone without an account? Ask for their ID + PIN.</p>
+      </div>
+      <div class="how-card anim-rise d2" id="how-card">
+        <h3>How it works</h3>
+        <ol>
+          <li><b>On the PC:</b> open <b>SWRemote-Agent.exe</b> — a window shows its ID and PIN.</li>
+          <li><b>Claim it:</b> tap <b>Add device</b> and enter the link code from the PC app — it appears here, privately.</li>
+          <li><b>Connect:</b> tap a device — no PIN needed, you're signed in on both sides.</li>
+        </ol>
+        <p class="hint" id="acct-row" style="margin-top:12px;"></p>
       </div>
     </div>
-    <div id="device-list" class="dev-grid"></div>
-    <div id="manual-join" class="how-card anim-rise d1 hidden">
-      <h3>Connect with ID + PIN</h3>
-      <div style="display:flex; gap:8px;">
-        <input id="manual-id" inputmode="numeric" placeholder="Device ID" style="margin:0;">
-        <button id="btn-manual" class="primary" style="width:auto; margin:0; padding:13px 22px;">Go</button>
+    <!-- DOWNLOADS PAGE -->
+    <div id="page-downloads" class="dash-page hidden">
+      <div class="page-head anim-rise">
+        <div><h2>Downloads</h2><p class="page-sub" id="dl-version"></p></div>
       </div>
-      <p class="hint" style="margin-top:10px;">Helping someone without an account? Ask for their ID + PIN.</p>
+      <div class="dl-grid">
+        <div class="dl-card card anim-rise d1">
+          <div class="dl-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+          <h3>SWRemote Setup</h3>
+          <p class="dl-desc">Recommended for your own PCs. Guided installer — Start Menu shortcuts, auto-start option, easy updates.</p>
+          <a class="primary dl-btn" href="/download/setup">Download Setup.exe</a>
+          <p class="dl-meta" id="dl-setup-meta"></p>
+        </div>
+        <div class="dl-card card anim-rise d2">
+          <div class="dl-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+          <h3>SWRemote Agent</h3>
+          <p class="dl-desc">Single file, no install. Double-click and share the ID + PIN — perfect for helping someone quickly.</p>
+          <a class="primary dl-btn" href="/download/agent">Download Agent.exe</a>
+          <p class="dl-meta" id="dl-agent-meta"></p>
+        </div>
+      </div>
+      <div class="how-card anim-rise d3">
+        <h3>Which one do I need?</h3>
+        <ol>
+          <li><b>Your own computer</b> → <b>Setup.exe</b>: installs once, stays updated, starts with Windows if you want.</li>
+          <li><b>Helping someone else</b> → send them <b>Agent.exe</b>: they run it, give you the ID + PIN, done.</li>
+        </ol>
+      </div>
     </div>
-    <div class="how-card anim-rise d2">
-      <h3>How it works</h3>
-      <ol>
-        <li><b>On the PC:</b> open <b>SWRemote-Agent.exe</b> — a popup shows its ID and PIN.</li>
-        <li><b>Claim it:</b> tap <b>＋ Add</b> and enter the code shown in the PC app — it appears here, privately.</li>
-        <li><b>Connect:</b> tap a device — no PIN needed, you're signed in on both sides.</li>
-      </ol>
-      <p class="hint" id="acct-row" style="margin-top:12px;"></p>
+    <!-- ACCOUNT PAGE -->
+    <div id="page-account" class="dash-page hidden">
+      <div class="page-head anim-rise">
+        <div><h2>Account</h2><p class="page-sub">Your SWRemote identity</p></div>
+      </div>
+      <div class="card pad anim-rise d1" id="account-card"></div>
     </div>
-  </main>
+  </div>
   <div id="toast" class="toast"></div>
 </section>
 

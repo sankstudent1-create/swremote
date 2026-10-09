@@ -48,6 +48,8 @@ var (
 	pCreateMutexW      = k32.NewProc("CreateMutexW")
 	pCreateFontW      = g32.NewProc("CreateFontW")
 	pCreateSolidBrush = g32.NewProc("CreateSolidBrush")
+	pCreatePen        = g32.NewProc("CreatePen")
+	pRoundRect        = g32.NewProc("RoundRect")
 	pCreateCompatibleDC = g32.NewProc("CreateCompatibleDC")
 	pDeleteDC         = g32.NewProc("DeleteDC")
 	pBitBlt           = g32.NewProc("BitBlt")
@@ -204,6 +206,8 @@ var (
 	gState   = &guiState{statusText: "Starting…", progress: -1, updBtnText: "Check for Updates", updBtnOn: true, started: time.Now()}
 	gCtl     = map[int]uintptr{}
 	gWhiteBr uintptr
+	gCardBr  uintptr
+	gCardPen uintptr
 	gFonts   = map[string]uintptr{}
 	gLogoBmp uintptr
 )
@@ -360,6 +364,14 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		// white background
 		var rcFull = [4]int32{0, 0, 430, 706}
 		pFillRect.Call(hdc, uintptr(unsafe.Pointer(&rcFull)), gWhiteBr)
+		// section cards (v4 design)
+		oldPen, _, _ := pSelectObject.Call(hdc, gCardPen)
+		oldBr, _, _ := pSelectObject.Call(hdc, gCardBr)
+		pRoundRect.Call(hdc, 12, 112, 418, 322, 28, 28) // ID + PIN + status
+		pRoundRect.Call(hdc, 12, 312, 418, 384, 28, 28) // invite link
+		pRoundRect.Call(hdc, 12, 380, 418, 452, 28, 28) // link this device
+		pSelectObject.Call(hdc, oldPen)
+		pSelectObject.Call(hdc, oldBr)
 		// header gradient
 		v := [2]triVertex{
 			{0, 0, 0x2f * 257, 0x7d * 257, 0xe1 * 257, 0},
@@ -480,8 +492,8 @@ func onClick(id int) {
 		newPIN := randomPIN()
 		cfgMu.Lock()
 		cfg.PIN = newPIN
-		saveConfig()
 		cfgMu.Unlock()
+		saveConfig() // takes cfgMu itself — must not hold the lock here
 		setText(ctlPINValue, newPIN)
 		guiSetStatus("New PIN generated.", true)
 	case ctlUpdate:
@@ -585,6 +597,8 @@ func runGUI() {
 	pInitCommon.Call(uintptr(unsafe.Pointer(&icc)))
 
 	gWhiteBr, _, _ = pCreateSolidBrush.Call(colorRef(255, 255, 255))
+	gCardBr, _, _ = pCreateSolidBrush.Call(colorRef(0xf7, 0xfa, 0xfd))
+	gCardPen, _, _ = pCreatePen.Call(0 /*PS_SOLID*/, 1, colorRef(0xe3, 0xea, 0xf3))
 	gFonts["title"] = mkFont("Segoe UI", 24, true)
 	gFonts["sub"] = mkFont("Segoe UI", 11, false)
 	gFonts["lbl"] = mkFont("Segoe UI", 10, false)
