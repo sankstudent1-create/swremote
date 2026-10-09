@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: swremote-relay
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    plan: free
+    healthCheckPath: /api/health

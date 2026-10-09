@@ -1,0 +1,5 @@
+node_modules/
+devices.json
+__pycache__/
+*.pyc
+.DS_Store

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#f6f8fb">
+<title>SWRemote — by SWInfoSystems</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ======= SCREEN: server login ======= -->
+<section id="scr-login" class="screen active">
+  <div class="card login-card">
+    <div class="logo"><span class="logo-mark">S</span></div>
+    <h1>SWRemote</h1>
+    <p class="sub">Remote desktop by SWInfoSystems</p>
+    <label>Relay server</label>
+    <input id="server-url" type="url" placeholder="https://your-relay.onrender.com" autocomplete="off">
+    <button id="btn-save-server" class="primary">Connect</button>
+    <p class="hint">Your devices appear after their Windows agent connects to this server.</p>
+  </div>
+</section>
+
+<!-- ======= SCREEN: device list ======= -->
+<section id="scr-devices" class="screen">
+  <header class="topbar">
+    <div class="brand"><span class="logo-mark sm">S</span> SWRemote</div>
+    <button id="btn-change-server" class="ghost">Server</button>
+  </header>
+  <main class="wrap">
+    <div class="row-between">
+      <h2>My devices</h2>
+      <button id="btn-refresh" class="ghost">↻ Refresh</button>
+    </div>
+    <div id="device-list" class="dev-grid"></div>
+    <p class="hint">On the Windows PC, run <b>install.bat</b> from the SWRemote agent folder, note the 9-digit ID, and set a PIN.</p>
+  </main>
+</section>
+
+<!-- ======= SCREEN: remote session ======= -->
+<section id="scr-session" class="screen">
+  <header class="topbar session-bar">
+    <button id="btn-disconnect" class="ghost">✕</button>
+    <div class="sess-title"><span id="sess-dot" class="dot"></span><span id="sess-name">—</span><span id="sess-fps" class="fps-pill"></span></div>
+    <div class="sess-actions">
+      <button id="btn-full" class="ghost" title="Fullscreen">⛶</button>
+      <button id="btn-quality" class="ghost" title="Quality">⚙</button>
+      <button id="btn-chat" class="ghost" title="Chat">💬</button>
+      <button id="btn-files" class="ghost" title="Send file">📁</button>
+      <button id="btn-kbd" class="ghost" title="Keyboard">⌨</button>
+      <button id="btn-lock" class="ghost" title="Lock PC">🔒</button>
+    </div>
+  </header>
+  <div class="stage">
+    <canvas id="screen"></canvas>
+    <div id="sess-status" class="sess-status">Connecting…</div>
+  </div>
+  <div id="keybar" class="keybar hidden">
+    <button data-key="esc">Esc</button><button data-key="tab">Tab</button>
+    <button data-key="win">Win</button><button data-key="up">▲</button>
+    <button data-key="down">▼</button><button data-key="left">◀</button>
+    <button data-key="right">▶</button><button data-key="delete">Del</button>
+    <button data-key="enter">Enter</button>
+  </div>
+  <input id="kbd-proxy" class="kbd-proxy" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+
+  <!-- chat drawer -->
+  <aside id="chat-panel" class="drawer hidden">
+    <div class="drawer-head"><b>Chat with PC</b><button class="ghost" data-close="chat-panel">✕</button></div>
+    <div id="chat-log" class="chat-log"></div>
+    <div class="chat-input"><input id="chat-text" placeholder="Type a message…" maxlength="500"><button id="chat-send" class="primary">Send</button></div>
+  </aside>
+
+  <!-- files drawer -->
+  <aside id="files-panel" class="drawer hidden">
+    <div class="drawer-head"><b>Send file to PC</b><button class="ghost" data-close="files-panel">✕</button></div>
+    <div class="pad">
+      <input id="file-input" type="file">
+      <button id="btn-send-file" class="primary" disabled>Send</button>
+      <p class="hint">Received files land in <b>Downloads\SWRemote</b> on the PC. Files sent from the PC side aren't downloadable in this version — ask the PC user to share them another way.</p>
+      <div id="file-progress"></div>
+    </div>
+  </aside>
+
+  <!-- quality popover -->
+  <div id="quality-pop" class="popover hidden">
+    <label>Quality</label>
+    <select id="q-quality"><option value="30">Low — fast</option><option value="55" selected>Medium</option><option value="75">High — sharp</option></select>
+    <label>Size</label>
+    <select id="q-scale"><option value="0.5">Small</option><option value="0.75" selected>Normal</option><option value="1">Full</option></select>
+  </div>
+</section>
+
+<!-- PIN modal -->
+<div id="pin-modal" class="modal hidden">
+  <div class="modal-card">
+    <h3 id="pin-title">Enter PIN</h3>
+    <input id="pin-input" type="password" inputmode="numeric" maxlength="32" placeholder="Device PIN" autocomplete="off">
+    <div class="modal-actions">
+      <button id="pin-cancel" class="ghost">Cancel</button>
+      <button id="pin-ok" class="primary">Connect</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
