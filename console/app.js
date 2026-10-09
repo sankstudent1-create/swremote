@@ -8,8 +8,9 @@ let decoding = false, lastMove = 0;
 
 /* ---------- screens ---------- */
 function show(id) {
-  document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
-  $(id).classList.add("active");
+  ["scr-auth", "scr-app"].forEach((s) => $(s).classList.toggle("hidden", s !== id));
+  $("scr-session").classList.toggle("active", id === "scr-session");
+  window.scrollTo(0, 0);
 }
 
 /* ---------- server ---------- */
@@ -27,28 +28,27 @@ async function boot() {
     saved = DEFAULT_SERVER;
     localStorage.setItem(LS_SERVER, saved);
   }
-  $("server-url").value = saved;
   await sbInit();
   if (sbOn() && !sbSignedIn()) enterAuth();
   else enterDevices(); // also handles ?id= direct invite links
 }
-$("btn-save-server").onclick = async () => {
-  const v = $("server-url").value.trim().replace(/\/$/, "");
-  if (!v) return;
-  localStorage.setItem(LS_SERVER, v);
-  await sbInit();
-  if (sbOn() && !sbSignedIn()) enterAuth();
-  else enterDevices();
-};
-/* ---------- Dashboard navigation (v4) ---------- */
+/* ---------- Dashboard navigation (Stitch edition) ---------- */
 function navTo(page) {
-  document.querySelectorAll(".side-nav button").forEach(b => b.classList.toggle("active", b.dataset.page === page));
-  ["devices", "downloads", "account"].forEach(p => $("page-" + p).classList.toggle("hidden", p !== page));
+  document.querySelectorAll("#side-nav button").forEach((b) => {
+    const on = b.dataset.page === page;
+    b.className = "flex items-center gap-3 px-4 py-2.5 rounded-xl font-medium text-sm transition-colors " +
+      (on ? "bg-primary-container text-on-primary-container" : "text-on-surface-variant hover:bg-surface-container");
+  });
+  document.querySelectorAll("#mobile-nav button").forEach((b) => {
+    const on = b.dataset.page === page;
+    b.className = "p-2.5 rounded-xl " + (on ? "text-primary bg-primary-fixed/40" : "text-on-surface-variant");
+  });
+  ["devices", "downloads", "account"].forEach((p) => $("page-" + p).classList.toggle("hidden", p !== page));
   if (page === "downloads") loadDownloadMeta();
   if (page === "account") renderAccountPage();
   window.scrollTo(0, 0);
 }
-document.querySelectorAll(".side-nav button").forEach(b => { b.onclick = () => navTo(b.dataset.page); });
+document.querySelectorAll("#side-nav button, #mobile-nav button").forEach((b) => { b.onclick = () => navTo(b.dataset.page); });
 $("dev-search").addEventListener("input", renderDeviceList);
 
 async function loadDownloadMeta() {
@@ -69,23 +69,23 @@ function renderAccountPage() {
   const c = $("account-card");
   const signed = sbOn() && sbSignedIn();
   c.innerHTML = `
-    <div style="display:flex;align-items:center;gap:16px;margin-bottom:18px;">
-      <div class="avatar">${signed ? esc((sbSession.email || "G")[0].toUpperCase()) : "?"}</div>
-      <div><div style="font-weight:800;font-size:17px;">${signed ? esc(sbSession.email) : "Guest"}</div>
-      <div class="page-sub">${signed ? "Signed in" : "Browsing without an account"}</div></div>
+    <div class="flex items-center gap-4 mb-6">
+      <div class="w-14 h-14 rounded-full bg-primary text-on-primary grid place-items-center font-bold text-2xl shrink-0">${signed ? esc((sbSession.email || "S")[0].toUpperCase()) : "?"}</div>
+      <div><div class="font-bold text-lg">${signed ? esc(sbSession.email) : "Guest"}</div>
+      <div class="text-sm text-on-surface-variant">${signed ? "Signed in" : "Browsing without an account"}</div></div>
     </div>
     ${signed
-      ? `<button class="ghost" id="btn-signout2" style="width:100%;">Sign out</button>`
-      : `<button class="primary" id="btn-signin2" style="margin:0;">Sign in / create account</button>`}
-    <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border);">
-      <div class="page-sub" style="margin-bottom:8px;">Relay server</div>
-      <div style="display:flex;gap:8px;">
-        <input id="acct-server" style="margin:0;" value="${esc(serverBase())}">
-        <button class="ghost" id="btn-acct-server" style="width:auto;margin:0;padding:0 18px;white-space:nowrap;">Save</button>
+      ? `<button id="btn-signout2" class="w-full py-3 rounded-xl bg-surface-container-low hover:bg-surface-container font-semibold transition-colors">Sign out</button>`
+      : `<button id="btn-signin2" class="w-full py-3 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-semibold transition-colors">Sign in / create account</button>`}
+    <div class="mt-6 pt-6 border-t border-surface-variant">
+      <div class="text-[11px] font-semibold text-outline uppercase tracking-wider mb-2">Relay server</div>
+      <div class="flex gap-2">
+        <input id="acct-server" class="auth-input flex-1" value="${esc(serverBase())}">
+        <button id="btn-acct-server" class="px-5 rounded-xl bg-surface-container-low hover:bg-surface-container font-semibold whitespace-nowrap transition-colors">Save</button>
       </div>
     </div>
-    <div style="margin-top:14px;"><button class="ghost hidden" id="btn-install2" style="width:100%;">⤓ Install SWRemote app</button></div>
-    <p class="hint" style="margin-top:14px;">SWRemote v4 · calm-light edition</p>`;
+    <button id="btn-install2" class="hidden w-full mt-4 py-3 rounded-xl bg-surface-container-low hover:bg-surface-container font-semibold transition-colors">Install SWRemote app</button>
+    <p class="text-xs text-outline mt-6 text-center">SWRemote · calm horizon edition</p>`;
   if (signed) $("btn-signout2").onclick = sbLogout;
   else $("btn-signin2").onclick = enterAuth;
   $("btn-acct-server").onclick = async () => {
@@ -107,10 +107,10 @@ function renderAccountPage() {
 }
 
 function renderSideUser() {
-  const el = $("side-user");
-  el.innerHTML = (sbOn() && sbSignedIn())
-    ? `Signed in as <b>${esc(sbSession.email)}</b>`
-    : `Guest mode`;
+  const signed = sbOn() && sbSignedIn();
+  $("side-avatar").textContent = signed ? (sbSession.email || "S")[0].toUpperCase() : "?";
+  $("side-user-name").textContent = signed ? sbSession.email : "Guest";
+  $("side-user-sub").textContent = signed ? "Signed in" : "Not signed in";
 }
 
 /* ---------- Supabase Auth (Phase 1: accounts) ---------- */
@@ -148,8 +148,9 @@ function setAuthMode(m) {
   $("auth-title").textContent = m === "in" ? "Welcome back" : "Create account";
   $("auth-sub").textContent = m === "in" ? "Sign in to see your devices" : "One account for all your devices";
   $("btn-auth-go").textContent = m === "in" ? "Sign in" : "Create account";
-  $("auth-toggle").textContent = m === "in" ? "New here? Create an account" : "Have an account? Sign in";
-  $("auth-err").style.display = "none";
+  $("auth-toggle-text").textContent = m === "in" ? "New here? " : "Have an account? ";
+  $("auth-toggle").textContent = m === "in" ? "Create an account" : "Sign in";
+  $("auth-err").classList.add("hidden");
 }
 async function doAuth() {
   const email = $("auth-email").value.trim(), pw = $("auth-pass").value;
@@ -194,16 +195,18 @@ $("auth-skip").onclick = (e) => { e.preventDefault(); enterDevices(); };
 $("auth-pass").addEventListener("keydown", (e) => { if (e.key === "Enter") doAuth(); });
 
 function enterAuth() { setAuthMode("in"); show("scr-auth"); }
-function enterDevices() { show("scr-devices"); renderSideUser(); navTo("devices"); loadDevices(); }
+function enterDevices() { show("scr-app"); renderSideUser(); navTo("devices"); loadDevices(); }
 function renderAcctRow() {
   const el = $("acct-row");
   const showAcct = sbOn();
-  $("btn-claim").classList.toggle("hidden", !showAcct || !sbSignedIn());
+  const hideClaim = !showAcct || !sbSignedIn();
+  $("btn-claim").classList.toggle("hidden", hideClaim);
+  $("btn-claim").classList.toggle("flex", !hideClaim);
   $("manual-join").classList.toggle("hidden", !(showAcct && !sbSignedIn()));
   if (!showAcct) { el.innerHTML = ""; return; }
   el.innerHTML = sbSignedIn()
-    ? `Signed in as <b>${esc(sbSession.email)}</b> — manage everything from the <b>Account</b> tab, or <a href="#" id="link-signout">sign out</a>.`
-    : `You're browsing as a guest — <a href="#" id="link-signin">sign in</a> to see your devices.`;
+    ? `Signed in as <b>${esc(sbSession.email)}</b> — manage everything from the <b>Account</b> tab, or <a href="#" id="link-signout" class="text-primary font-semibold">sign out</a>.`
+    : `You're browsing as a guest — <a href="#" id="link-signin" class="text-primary font-semibold">sign in</a> to see your devices.`;
   const so = $("link-signout"), si = $("link-signin");
   if (so) so.onclick = (e) => { e.preventDefault(); sbLogout(); };
   if (si) si.onclick = (e) => { e.preventDefault(); enterAuth(); };
@@ -273,32 +276,54 @@ async function loadDevices() {
       ? `${online} of ${j.devices.length} online` : "";
     if (!j.devices.length) {
       list.innerHTML = sbOn() && sbSignedIn()
-        ? '<div class="empty"><span class="empty-ico">🖥️</span><b>No devices yet.</b><br>Tap <b>＋ Add</b> and enter the code from the PC app.</div>'
-        : '<div class="empty"><span class="empty-ico">🖥️</span><b>No devices yet.</b><br>Open <b>SWRemote-Agent.exe</b> on a Windows PC first.</div>';
+        ? `<div class="col-span-full bg-surface-container-lowest rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
+             <span class="material-symbols-outlined text-5xl text-primary mb-3">desktop_access_disabled</span>
+             <div class="font-display font-bold text-xl mb-1">No devices yet.</div>
+             <div class="text-sm text-on-surface-variant">Tap <b>Add device</b> and enter the code from the PC app.</div>
+           </div>`
+        : `<div class="col-span-full bg-surface-container-lowest rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
+             <span class="material-symbols-outlined text-5xl text-primary mb-3">desktop_access_disabled</span>
+             <div class="font-display font-bold text-xl mb-1">No devices yet.</div>
+             <div class="text-sm text-on-surface-variant">Open <b>SWRemote-Agent.exe</b> on a Windows PC first.</div>
+           </div>`;
       return;
     }
     list.innerHTML = "";
     const q = ($("dev-search").value || "").trim().toLowerCase();
     const shown = q ? j.devices.filter((d) => (d.name + " " + d.id).toLowerCase().includes(q)) : j.devices;
     if (!shown.length) {
-      list.innerHTML = `<div class="empty"><span class="empty-ico">🔎</span><b>No matches.</b><br>Try a different search.</div>`;
+      list.innerHTML = `<div class="col-span-full bg-surface-container-lowest rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
+        <span class="material-symbols-outlined text-5xl text-outline mb-3">search_off</span>
+        <div class="font-display font-bold text-xl mb-1">No matches.</div>
+        <div class="text-sm text-on-surface-variant">Try a different search.</div></div>`;
       return;
     }
     shown.forEach((d) => {
       const card = document.createElement("div");
-      card.className = "dev-card" + (d.online ? "" : " offline");
+      card.className = "device-card bg-surface-container-lowest rounded-2xl p-5 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col justify-between group" + (d.online ? "" : " opacity-90");
       card.innerHTML = `
-        <div class="dev-top">
-          <div class="dev-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
-          <div><div class="dev-name">${esc(d.name)}</div><div class="dev-id">${esc(d.id)}</div></div>
+        <div class="flex flex-col gap-4">
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="w-11 h-11 rounded-xl ${d.online ? "bg-secondary-container text-primary" : "bg-surface-container text-on-surface-variant"} flex items-center justify-center shrink-0 shadow-sm">
+                <span class="material-symbols-outlined text-2xl">desktop_windows</span>
+              </div>
+              <div class="flex flex-col min-w-0">
+                <span class="font-semibold text-on-surface truncate group-hover:text-primary transition-colors">${esc(d.name)}</span>
+                <span class="text-[11px] text-on-surface-variant font-mono mt-0.5">#${esc(d.id)}</span>
+              </div>
+            </div>
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full ${d.online ? "bg-tertiary-fixed text-on-tertiary-fixed-variant" : "bg-surface-container-high text-on-surface-variant"} text-[11px] font-semibold shrink-0">
+              <span class="w-1.5 h-1.5 rounded-full ${d.online ? "bg-tertiary animate-pulse" : "bg-surface-variant"}"></span>${d.online ? "Online" : "Offline"}
+            </span>
+          </div>
+          <div class="bg-surface-container-low rounded-xl px-3 py-2.5 flex items-center justify-between">
+            <span class="text-sm ${d.online ? "text-on-surface font-medium" : "text-on-surface-variant"}">${d.online ? "Active now" : "seen " + relTime(d.lastSeen)}</span>
+          </div>
         </div>
-        <div class="dev-meta">
-          <span class="pill ${d.online ? "on" : "off"}"><span class="dot ${d.online ? "on" : "off"}"></span>${d.online ? "Online" : "Offline"}</span>
-          <span class="dev-seen">${d.online ? "connected now" : "seen " + relTime(d.lastSeen)}</span>
-        </div>
-        <div class="dev-actions">
-          <button class="ghost btn-share">Share</button>
-          <button class="primary btn-connect" ${d.online ? "" : "disabled"}>${d.mine ? "Open" : "Connect"}</button>
+        <div class="flex items-center gap-2 pt-5">
+          <button class="btn-share flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-surface-container-low hover:bg-surface-container text-on-surface text-sm font-medium transition-colors"><span class="material-symbols-outlined text-base text-secondary">share</span><span>Share</span></button>
+          <button class="btn-connect flex-[1.4] flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl ${d.online ? "bg-primary hover:bg-primary-container text-on-primary" : "bg-surface-container-high text-on-surface-variant"} text-sm font-medium shadow-sm transition-all" ${d.online ? "" : "disabled"}><span class="material-symbols-outlined text-base">${d.mine ? "play_arrow" : "lock"}</span><span>${d.mine ? "Open" : "Connect"}</span></button>
         </div>`;
       // own devices join with the account token — no PIN needed
       if (d.online) card.querySelector(".btn-connect").onclick = () => d.mine ? startSessionToken(d) : askPin(d);
@@ -314,7 +339,10 @@ async function loadDevices() {
     }
   } catch (e) {
     $("dev-count").textContent = "";
-    list.innerHTML = `<div class="empty"><span class="empty-ico">📡</span><b>Cannot reach the server.</b><br>${esc(e.message)}<br>Check your connection and tap refresh.</div>`;
+    list.innerHTML = `<div class="col-span-full bg-surface-container-lowest rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
+      <span class="material-symbols-outlined text-5xl text-outline mb-3">cloud_off</span>
+      <div class="font-display font-bold text-xl mb-1">Cannot reach the server.</div>
+      <div class="text-sm text-on-surface-variant">${esc(e.message)}<br>Check your connection and tap refresh.</div></div>`;
   }
 }
 function shareDevice(d) {

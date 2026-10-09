@@ -1,5 +1,5 @@
 {
-  "version": "3.2.1",
-  "notes": "Fixes a console window opening beside the agent (wrong linker flag in 3.2.0). Design edition: brand-new dashboard with sidebar (Devices, Downloads, Account), device search, SVG iconography, and a downloads page with installer + portable builds. The PC app gets a card-based window and a fixed New-PIN freeze. Relay now self-heals missing user profiles on claim.",
+  "version": "3.3.0",
+  "notes": "Stitch design edition: the web console now wears the Google Stitch 'Calm Horizon' design system — sidebar navigation, telemetry-style device cards with status pills, Material icons, refined auth screens, and dedicated Downloads + Account pages. Same fast relay and session engine underneath.",
   "url": "https://swremote-relay.onrender.com/download/agent"
 }

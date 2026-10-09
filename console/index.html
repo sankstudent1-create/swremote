@@ -1,146 +1,298 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#f4f6fa" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0e1420" media="(prefers-color-scheme: dark)">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="SWRemote">
-<meta name="description" content="SWRemote by SWInfoSystems — control your Windows PCs from any device.">
-<title>SWRemote — by SWInfoSystems</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SWRemote — Remote Desktop Dashboard</title>
 <link rel="manifest" href="manifest.json">
-<link rel="icon" type="image/png" href="icon-192.png">
-<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#005bb2">
+<link rel="icon" href="logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script id="tailwind-config">tailwind.config={"darkMode":"class","theme":{"extend":{"colors":{"on-primary-fixed":"#001b3d","on-secondary-container":"#57657a","surface-bright":"#f7fafe","tertiary":"#006947","primary":"#005bb2","on-primary-container":"#fefcff","inverse-primary":"#a9c7ff","surface-container-high":"#e5e8ec","tertiary-container":"#00855b","on-secondary":"#ffffff","surface-container-lowest":"#ffffff","surface-variant":"#e0e3e7","primary-container":"#2074d7","inverse-on-surface":"#eef1f5","secondary-fixed":"#d5e3fc","inverse-surface":"#2d3134","surface":"#f7fafe","on-background":"#181c1f","on-surface":"#181c1f","on-surface-variant":"#414753","on-error":"#ffffff","on-tertiary-container":"#f5fff6","surface-tint":"#005db7","outline":"#727784","surface-container-low":"#f1f4f8","primary-fixed-dim":"#a9c7ff","surface-container-highest":"#e0e3e7","secondary-container":"#d5e3fc","outline-variant":"#c1c6d5","secondary":"#515f74","tertiary-fixed-dim":"#4edea3","tertiary-fixed":"#6ffbbe","on-tertiary-fixed-variant":"#005236","on-tertiary":"#ffffff","background":"#f7fafe","surface-dim":"#d7dade","primary-fixed":"#d6e3ff","surface-container":"#ebeef2"},"borderRadius":{"lg":"0.5rem","xl":"0.75rem","full":"9999px"}},"fontFamily":{"sans":["Inter","system-ui","sans-serif"],"display":["Plus Jakarta Sans","Inter","sans-serif"]}}}};</script>
+<style>
+  html,body{margin:0;padding:0;}
+  body{font-family:Inter,system-ui,sans-serif;background:#f7fafe;color:#181c1f;-webkit-tap-highlight-color:transparent;}
+  .font-display{font-family:"Plus Jakarta Sans",Inter,sans-serif;}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#c1c6d5;border-radius:8px;border:2px solid #f7fafe}
+  .material-symbols-outlined{font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24;}
+  /* mobile: sidebar becomes a top bar */
+  #mobilebar{display:none}
+  @media (max-width:1023px){
+    #sidebar{display:none!important}
+    #maincol{padding-left:0!important}
+    #topbar{left:0!important}
+    #mobilebar{display:flex}
+  }
+  /* screens */
+  .screen{display:none; min-height:100dvh; flex-direction:column;}
+  .screen.active{display:flex;}
+  /* session screen (remote viewer) — proven styles */
+  #scr-session{background:#0d1320;}
+  #scr-session .topbar{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 18px;}
+  .session-bar{background:rgba(17,24,38,.92); backdrop-filter:blur(12px); border-bottom:1px solid #1e2a42;}
+  .session-bar .icon-btn{background:#1c2942; color:#cfe0f7;}
+  .sess-title{display:flex; align-items:center; gap:8px; font-weight:700; font-size:15px; min-width:0; color:#eef3fb;}
+  .sess-title #sess-name{white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .sess-spacer{width:40px;}
+  .fps-pill{font-size:11px; font-weight:800; color:#7ee2a8; background:rgba(34,163,95,.16); border:1px solid rgba(34,163,95,.4); padding:3px 9px; border-radius:20px; white-space:nowrap;}
+  .stage{flex:1; position:relative; display:flex; align-items:center; justify-content:center; min-height:0; touch-action:none; background:#0d1320; overflow:auto; -webkit-overflow-scrolling:touch;}
+  #zoomwrap{margin:auto; display:flex; align-items:center; justify-content:center; flex:none;}
+  #screen{display:block; touch-action:none; background:#000; border-radius:6px;}
+  .remote-cursor{position:absolute; width:18px; height:18px; pointer-events:none; z-index:5; display:none;}
+  .zoomctl{position:absolute; right:12px; bottom:12px; display:flex; gap:6px; z-index:6; background:rgba(17,24,38,.85); backdrop-filter:blur(8px); border:1px solid #2a3a58; border-radius:14px; padding:5px;}
+  .zoomctl button{background:#22314d; color:#dbe7fa; width:38px; height:38px; padding:0; border-radius:10px; font-size:19px; font-weight:700; line-height:1; border:0; cursor:pointer;}
+  .zoomctl #zoom-label{width:auto; min-width:56px; font-size:12.5px; padding:0 8px;}
+  .sess-status{position:absolute; inset:auto 0 50% 0; transform:translateY(50%); text-align:center; color:#9fb2cc; font-size:14px; pointer-events:none; padding:0 30px;}
+  .sess-status.err{color:#ff9d9d;}
+  .keybar{display:flex; gap:6px; padding:10px 12px; background:#111826; overflow-x:auto; border-top:1px solid #1e2a42;}
+  .keybar button{background:#1e2a3f; color:#dbe7fa; padding:10px 15px; white-space:nowrap; font-weight:600; border:0; border-radius:10px; cursor:pointer;}
+  .kbd-proxy{position:fixed; bottom:0; left:0; width:10px; height:10px; opacity:0; pointer-events:none;}
+  .toolbar{display:flex; background:rgba(17,24,38,.96); backdrop-filter:blur(12px); border-top:1px solid #1e2a42; padding:8px 6px calc(10px + env(safe-area-inset-bottom));}
+  .toolbar button{flex:1; background:none; border:0; color:#aebdd6; display:flex; flex-direction:column; align-items:center; gap:3px; padding:8px 0; border-radius:12px; font-size:11px; font-weight:600; cursor:pointer; transition:background .15s, transform .1s; position:relative;}
+  .toolbar button:active{background:#1e2a3f; transform:scale(.94);}
+  .toolbar button.on{color:#fff;}
+  .toolbar button.on::after{content:""; position:absolute; top:4px; width:5px; height:5px; border-radius:50%; background:#5aa2f5;}
+  .t-ico{font-size:20px; line-height:1;}
+  .t-label{font-size:10.5px; letter-spacing:.2px;}
+  .sheet{position:fixed; left:0; right:0; bottom:0; max-height:82dvh; background:#fff; z-index:20; display:flex; flex-direction:column; border-radius:22px 22px 0 0; border:1px solid #e7edf5; box-shadow:0 -12px 40px rgba(0,0,0,.25); animation:sheetUp .25s ease;}
+  @keyframes sheetUp{from{transform:translateY(40px); opacity:.5;} to{transform:none; opacity:1;}}
+  @media(min-width:700px){.sheet{left:auto; right:0; top:0; bottom:0; width:380px; border-radius:22px 0 0 22px; max-height:none;}}
+  .sheet-head{display:flex; align-items:center; gap:10px; padding:16px 16px 12px; border-bottom:1px solid #e7edf5; font-size:15px; position:relative;}
+  .sheet-grip{position:absolute; top:7px; left:50%; transform:translateX(-50%); width:40px; height:4px; border-radius:4px; background:#d5dde8;}
+  @media(min-width:700px){.sheet-grip{display:none;}}
+  .sheet-head b{flex:1;}
+  .chat-log{flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:9px; min-height:120px;}
+  .chat-msg{max-width:85%; padding:10px 14px; border-radius:16px; font-size:14.5px; line-height:1.45; animation:riseIn .25s ease both; box-shadow:0 2px 8px rgba(22,35,58,.06);}
+  @keyframes riseIn{from{transform:translateY(8px); opacity:0;} to{transform:none; opacity:1;}}
+  .chat-msg.me{align-self:flex-end; background:linear-gradient(135deg,#2f7de1,#5aa2f5); color:#fff; border-bottom-right-radius:6px;}
+  .chat-msg.them{align-self:flex-start; background:#e9f1fd; color:#16233a; border-bottom-left-radius:6px;}
+  .chat-input{display:flex; gap:8px; padding:12px 14px calc(14px + env(safe-area-inset-bottom)); border-top:1px solid #e7edf5;}
+  .chat-input input{flex:1; padding:12px 14px; border:1.5px solid #e7edf5; border-radius:12px; font-size:15px; font-family:inherit;}
+  .chat-input input:focus{outline:none; border-color:#2f7de1;}
+  .chat-input .primary{width:auto; margin:0; padding:12px 20px; background:linear-gradient(135deg,#2f7de1,#5aa2f5); color:#fff; border:0; border-radius:12px; font-weight:700; cursor:pointer;}
+  .pad{padding:18px;}
+  .file-drop{display:flex; align-items:center; justify-content:center; gap:8px; border:2px dashed #e7edf5; border-radius:12px; padding:26px; font-size:15px; font-weight:600; color:#1f5fc0; background:#e9f1fd; cursor:pointer; margin:0;}
+  #file-progress{margin-top:12px; font-size:13px; color:#8494ab;}
+  #btn-send-file:disabled{opacity:.45; cursor:default;}
+  .popover{position:fixed; bottom:90px; right:12px; background:#fff; border:1px solid #e7edf5; border-radius:16px; padding:16px; z-index:30; box-shadow:0 8px 28px rgba(22,35,58,.08); width:210px; animation:popIn .2s ease;}
+  @keyframes popIn{from{transform:scale(.95); opacity:0;} to{transform:none; opacity:1;}}
+  .popover label{display:block; font-size:12px; font-weight:600; color:#8494ab; margin:10px 0 5px;}
+  .popover label:first-child{margin-top:0;}
+  .popover select{width:100%; padding:10px; border:1.5px solid #e7edf5; border-radius:10px; font-size:14px; font-family:inherit;}
+  /* modals */
+  .modal{position:fixed; inset:0; background:rgba(15,25,42,.5); backdrop-filter:blur(4px); display:flex; align-items:center; justify-content:center; z-index:70; padding:20px;}
+  .modal-card{background:#fff; border-radius:22px; padding:28px 26px; width:min(380px,100%); border:1px solid rgba(255,255,255,.6); box-shadow:0 24px 60px rgba(22,35,58,.22);}
+  .pin-dev{display:flex; gap:12px; align-items:center; margin-bottom:6px;}
+  .pin-dev b{font-size:16px;}
+  .pin-id{font-size:12.5px; color:#8494ab; letter-spacing:1.5px; margin-top:2px;}
+  #pin-input,#claim-input{width:100%; box-sizing:border-box;}
+  #pin-input{text-align:center; font-size:24px; letter-spacing:8px; font-weight:700; padding:14px; margin-top:14px; border:1.5px solid #e7edf5; border-radius:12px; font-family:inherit;}
+  #pin-input::placeholder{letter-spacing:8px; color:#c3ccd8;}
+  .modal-actions{display:flex; gap:10px; margin-top:18px;}
+  .modal-actions .primary{flex:1.4; background:linear-gradient(135deg,#2f7de1,#5aa2f5); color:#fff; border:0; border-radius:12px; padding:13px; font-weight:700; cursor:pointer;}
+  .modal-actions .ghost{flex:1; background:#e9f1fd; color:#1f5fc0; border:0; border-radius:12px; padding:13px; font-weight:700; cursor:pointer;}
+  .logo-img{width:58px; height:58px; border-radius:19px; background:#fff;}
+  .logo-img.sm{width:36px; height:36px; border-radius:11px;}
+  .hint{color:#8494ab; font-size:13px; line-height:1.55; margin:16px 0 0;}
+  /* toast */
+  .toast{position:fixed; left:50%; bottom:28px; transform:translateX(-50%) translateY(20px); background:#16233a; color:#fff; font-size:14px; font-weight:600; padding:12px 20px; border-radius:30px; opacity:0; pointer-events:none; transition:all .25s; z-index:100; box-shadow:0 10px 30px rgba(0,0,0,.25); max-width:90vw; text-align:center; display:flex; align-items:center; gap:9px;}
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+  .toast::before{content:"✓"; width:22px; height:22px; flex:none; border-radius:50%; background:rgba(255,255,255,.18); display:flex; align-items:center; justify-content:center; font-size:13px;}
+  .dot{width:10px; height:10px; border-radius:50%; display:inline-block; flex:none;}
+  .dot.on{background:#22a35f; box-shadow:0 0 8px rgba(34,163,95,.55); animation:pulse 2s infinite;}
+  .dot.off{background:#c3ccd8;}
+  @keyframes pulse{0%,100%{box-shadow:0 0 8px rgba(34,163,95,.55);} 50%{box-shadow:0 0 2px rgba(34,163,95,.2);}}
+  .icon-btn{background:#e9f1fd; color:#1f5fc0; width:40px; height:40px; padding:0; border:0; border-radius:12px; font-size:18px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; cursor:pointer;}
+  /* auth extras */
+  .auth-input{width:100%;padding:13px 16px;border:1.5px solid #e0e3e7;border-radius:12px;font:inherit;font-size:15px;background:#fff;outline:none;transition:border .15s, box-shadow .15s; box-sizing:border-box;}
+  .auth-input:focus{border-color:#005bb2;box-shadow:0 0 0 4px rgba(0,91,178,.12)}
+  .hidden{display:none!important}
+</style>
 </head>
-<body>
-
-<!-- ======= SCREEN: account (Phase 1) ======= -->
-<section id="scr-auth" class="screen">
-  <div class="card login-card">
-    <img class="login-logo" src="logo.png" alt="SWRemote">
-    <h1 id="auth-title">Welcome back</h1>
-    <p class="login-tag" id="auth-sub">Sign in to see your devices</p>
-    <label for="auth-email">Email</label>
-    <input id="auth-email" type="email" placeholder="you@example.com" autocomplete="email">
-    <label for="auth-pass">Password</label>
-    <input id="auth-pass" type="password" placeholder="••••••••" autocomplete="current-password">
-    <button id="btn-auth-go" class="primary">Sign in</button>
-    <p class="hint"><a href="#" id="auth-toggle">New here? Create an account</a></p>
-    <p class="hint" id="auth-err" style="color:var(--red); display:none;"></p>
-    <p class="login-brandline">or <a href="#" id="auth-skip">continue without an account</a> (ID + PIN only)</p>
-  </div>
-</section>
-
-<!-- ======= SCREEN: server (rarely seen — address is built in) ======= -->
-<section id="scr-login" class="screen">
-  <div class="card login-card">
-    <img class="login-logo" src="logo.png" alt="SWRemote">
-    <h1>SWRemote</h1>
-    <p class="login-tag">Your PC, in your pocket — secure remote desktop</p>
-    <div class="login-feats">
-      <div class="login-feat"><span class="f-ico">⚡</span><span><b>Instant connect</b> — open the app on your PC, enter the PIN</span></div>
-      <div class="login-feat"><span class="f-ico">🔒</span><span><b>PIN-secured</b> — every session needs your private PIN</span></div>
-      <div class="login-feat"><span class="f-ico">📱</span><span><b>Any device</b> — control from phone, tablet or browser</span></div>
+<body class="bg-surface text-on-surface antialiased">
+<!-- ================= AUTH ================= -->
+<section id="scr-auth" class="hidden min-h-screen grid place-items-center p-5 relative overflow-hidden">
+  <div class="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-primary-fixed opacity-40 blur-3xl pointer-events-none"></div>
+  <div class="absolute -bottom-32 -left-32 w-96 h-96 rounded-full bg-tertiary-fixed opacity-30 blur-3xl pointer-events-none"></div>
+  <div class="relative w-full max-w-md bg-surface-container-lowest rounded-2xl shadow-xl p-8">
+    <div class="flex items-center gap-3 mb-6">
+      <img src="logo.png" alt="SWRemote" class="h-11 w-11 rounded-xl">
+      <div>
+        <div class="font-display font-bold text-xl tracking-tight">SWRemote</div>
+        <div class="text-sm text-on-surface-variant">by SWInfoSystems</div>
+      </div>
     </div>
-    <label for="server-url">Relay server</label>
-    <input id="server-url" type="url" placeholder="https://your-relay.onrender.com" autocomplete="off">
-    <button id="btn-save-server" class="primary">Connect</button>
-    <p class="login-brandline">by SWInfoSystems • Usually you never see this screen —<br>the server address is built into the app.</p>
+    <h1 id="auth-title" class="font-display font-bold text-2xl mb-1">Welcome back</h1>
+    <p id="auth-sub" class="text-sm text-on-surface-variant mb-6">Sign in to see your devices.</p>
+    <div class="flex flex-col gap-3">
+      <input id="auth-email" type="email" class="auth-input" placeholder="Email address" autocomplete="email">
+      <input id="auth-pass" type="password" class="auth-input" placeholder="Password" autocomplete="current-password">
+    </div>
+    <p id="auth-err" class="hidden text-sm mt-3 px-3 py-2 rounded-lg bg-error-container text-on-error-container"></p>
+    <button id="btn-auth-go" class="w-full mt-5 py-3.5 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-semibold transition-colors">Sign in</button>
+    <p class="text-sm text-center mt-4 text-on-surface-variant">
+      <span id="auth-toggle-text">New here?</span>
+      <a href="#" id="auth-toggle" class="text-primary font-semibold">Create an account</a>
+    </p>
+    <div class="flex items-center gap-3 my-5"><div class="flex-1 h-px bg-surface-variant"></div><span class="text-xs text-outline">or</span><div class="flex-1 h-px bg-surface-variant"></div></div>
+    <button id="auth-skip" class="w-full py-3 rounded-xl bg-surface-container-low hover:bg-surface-container text-on-surface font-semibold transition-colors">Continue as guest</button>
   </div>
 </section>
 
-<!-- ======= SCREEN: dashboard (devices / downloads / account) ======= -->
-<section id="scr-devices" class="screen">
-  <aside class="side">
-    <div class="side-brand"><img class="logo-img sm" src="logo.png" alt=""><span>SWRemote</span></div>
-    <nav class="side-nav">
-      <button data-page="devices" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg><span>Devices</span></button>
-      <button data-page="downloads"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>Downloads</span></button>
-      <button data-page="account"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span>Account</span></button>
+<!-- ================= DASHBOARD ================= -->
+<section id="scr-app" class="hidden">
+  <!-- mobile top bar -->
+  <div id="mobilebar" class="fixed top-0 left-0 right-0 z-50 h-16 bg-surface-container-lowest/90 backdrop-blur-xl items-center justify-between px-4 shadow-[0_1px_8px_rgba(0,0,0,0.04)]">
+    <div class="flex items-center gap-2">
+      <img src="logo.png" alt="" class="h-8 w-8 rounded-lg">
+      <span class="font-display font-bold text-lg text-primary tracking-tight">SWRemote</span>
+    </div>
+    <nav class="flex items-center gap-1" id="mobile-nav">
+      <button data-page="devices" class="p-2.5 rounded-xl text-primary bg-primary-fixed/40"><span class="material-symbols-outlined">devices</span></button>
+      <button data-page="downloads" class="p-2.5 rounded-xl text-on-surface-variant"><span class="material-symbols-outlined">download</span></button>
+      <button data-page="account" class="p-2.5 rounded-xl text-on-surface-variant"><span class="material-symbols-outlined">manage_accounts</span></button>
     </nav>
-    <div class="side-foot" id="side-user"></div>
-  </aside>
-  <div class="dash-main">
-    <!-- DEVICES PAGE -->
-    <div id="page-devices" class="dash-page">
-      <div class="page-head anim-rise">
-        <div>
-          <h2>My devices</h2>
-          <p class="page-sub" id="dev-count"></p>
-        </div>
-        <div class="page-actions">
-          <div class="searchbox"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="dev-search" placeholder="Search devices…"></div>
-          <button id="btn-claim" class="primary btn-add hidden"><span>＋</span> Add device</button>
-          <button id="btn-refresh" class="icon-btn" title="Refresh">↻</button>
-        </div>
-      </div>
-      <div id="device-list" class="dev-grid"></div>
-      <div id="manual-join" class="how-card anim-rise d1 hidden">
-        <h3>Connect with ID + PIN</h3>
-        <div style="display:flex; gap:8px;">
-          <input id="manual-id" inputmode="numeric" placeholder="Device ID" style="margin:0;">
-          <button id="btn-manual" class="primary" style="width:auto; margin:0; padding:13px 22px;">Go</button>
-        </div>
-        <p class="hint" style="margin-top:10px;">Helping someone without an account? Ask for their ID + PIN.</p>
-      </div>
-      <div class="how-card anim-rise d2" id="how-card">
-        <h3>How it works</h3>
-        <ol>
-          <li><b>On the PC:</b> open <b>SWRemote-Agent.exe</b> — a window shows its ID and PIN.</li>
-          <li><b>Claim it:</b> tap <b>Add device</b> and enter the link code from the PC app — it appears here, privately.</li>
-          <li><b>Connect:</b> tap a device — no PIN needed, you're signed in on both sides.</li>
-        </ol>
-        <p class="hint" id="acct-row" style="margin-top:12px;"></p>
-      </div>
-    </div>
-    <!-- DOWNLOADS PAGE -->
-    <div id="page-downloads" class="dash-page hidden">
-      <div class="page-head anim-rise">
-        <div><h2>Downloads</h2><p class="page-sub" id="dl-version"></p></div>
-      </div>
-      <div class="dl-grid">
-        <div class="dl-card card anim-rise d1">
-          <div class="dl-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
-          <h3>SWRemote Setup</h3>
-          <p class="dl-desc">Recommended for your own PCs. Guided installer — Start Menu shortcuts, auto-start option, easy updates.</p>
-          <a class="primary dl-btn" href="/download/setup">Download Setup.exe</a>
-          <p class="dl-meta" id="dl-setup-meta"></p>
-        </div>
-        <div class="dl-card card anim-rise d2">
-          <div class="dl-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
-          <h3>SWRemote Agent</h3>
-          <p class="dl-desc">Single file, no install. Double-click and share the ID + PIN — perfect for helping someone quickly.</p>
-          <a class="primary dl-btn" href="/download/agent">Download Agent.exe</a>
-          <p class="dl-meta" id="dl-agent-meta"></p>
-        </div>
-      </div>
-      <div class="how-card anim-rise d3">
-        <h3>Which one do I need?</h3>
-        <ol>
-          <li><b>Your own computer</b> → <b>Setup.exe</b>: installs once, stays updated, starts with Windows if you want.</li>
-          <li><b>Helping someone else</b> → send them <b>Agent.exe</b>: they run it, give you the ID + PIN, done.</li>
-        </ol>
-      </div>
-    </div>
-    <!-- ACCOUNT PAGE -->
-    <div id="page-account" class="dash-page hidden">
-      <div class="page-head anim-rise">
-        <div><h2>Account</h2><p class="page-sub">Your SWRemote identity</p></div>
-      </div>
-      <div class="card pad anim-rise d1" id="account-card"></div>
-    </div>
   </div>
-  <div id="toast" class="toast"></div>
-</section>
 
-<!-- ======= SCREEN: remote session ======= -->
+  <!-- sidebar -->
+  <aside id="sidebar" class="fixed left-0 top-0 h-full w-64 bg-surface-container-lowest shadow-[0_1px_8px_rgba(0,0,0,0.04)] z-50 flex flex-col justify-between">
+    <div class="flex flex-col">
+      <div class="h-16 px-6 flex items-center gap-3">
+        <img src="logo.png" alt="SWRemote" class="h-9 w-9 rounded-xl">
+        <span class="font-display font-bold text-xl text-primary tracking-tight">SWRemote</span>
+      </div>
+      <div class="px-4 pt-4">
+        <div class="px-3 pb-2 text-[11px] font-semibold text-outline uppercase tracking-wider">Navigation</div>
+        <nav class="flex flex-col gap-1" id="side-nav">
+          <button data-page="devices" class="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-primary-container text-on-primary-container font-medium text-sm transition-colors"><span class="material-symbols-outlined text-xl">devices</span><span>Devices</span></button>
+          <button data-page="downloads" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-on-surface-variant font-medium text-sm hover:bg-surface-container transition-colors"><span class="material-symbols-outlined text-xl">download</span><span>Downloads</span></button>
+          <button data-page="account" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-on-surface-variant font-medium text-sm hover:bg-surface-container transition-colors"><span class="material-symbols-outlined text-xl">manage_accounts</span><span>Account</span></button>
+        </nav>
+      </div>
+    </div>
+    <div class="p-4">
+      <div class="p-3 rounded-xl bg-surface-container-low flex items-center gap-3">
+        <div class="w-9 h-9 rounded-full bg-primary text-on-primary grid place-items-center font-bold shrink-0" id="side-avatar">?</div>
+        <div class="flex flex-col min-w-0 flex-1">
+          <span class="font-medium text-sm text-on-surface truncate leading-tight" id="side-user-name">Guest</span>
+          <span class="text-xs text-on-surface-variant truncate" id="side-user-sub">Not signed in</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- main column -->
+  <div id="maincol" class="pl-64">
+    <header id="topbar" class="fixed top-0 left-64 right-0 h-16 bg-surface/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)] z-40 flex items-center justify-between px-8 max-lg:hidden">
+      <div class="flex items-center gap-4 flex-1 max-w-md">
+        <div class="w-full flex items-center gap-2 bg-surface-container-lowest px-4 py-2 rounded-xl shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
+          <span class="material-symbols-outlined text-outline text-lg">search</span>
+          <input id="dev-search" class="w-full bg-transparent border-0 outline-none text-sm placeholder:text-outline" placeholder="Search devices…" type="text">
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface-container-low">
+          <span class="w-2 h-2 rounded-full bg-tertiary animate-pulse"></span>
+          <span class="text-[11px] font-semibold text-tertiary" id="relay-pill">Relay</span>
+        </div>
+        <button id="btn-refresh" class="w-9 h-9 rounded-xl flex items-center justify-center text-on-surface-variant hover:bg-surface-container transition-colors" title="Refresh"><span class="material-symbols-outlined text-xl">refresh</span></button>
+      </div>
+    </header>
+
+    <main class="relative w-full pt-16 bg-surface min-h-screen max-lg:pt-16">
+      <div class="flex flex-col w-full">
+        <div class="px-8 py-6 flex flex-col gap-6 max-w-7xl w-full mx-auto max-lg:px-4">
+
+          <!-- ============ DEVICES PAGE ============ -->
+          <div id="page-devices">
+            <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-6">
+              <div>
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="text-[11px] font-bold uppercase tracking-widest text-primary">Infrastructure Hub</span>
+                  <span class="w-1.5 h-1.5 rounded-full bg-outline-variant"></span>
+                  <span class="text-[11px] text-on-surface-variant" id="dev-count"></span>
+                </div>
+                <h1 class="font-display font-bold text-4xl tracking-tight">My devices</h1>
+                <p class="text-sm text-on-surface-variant mt-1">Tap a device to open it — no PIN needed for your own machines.</p>
+              </div>
+              <button id="btn-claim" class="hidden items-center gap-2 px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-semibold text-sm shadow-sm transition-all hover:-translate-y-0.5">
+                <span class="material-symbols-outlined text-lg">add_circle</span><span>Add device</span>
+              </button>
+            </div>
+
+            <div id="device-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5"></div>
+
+            <div id="manual-join" class="hidden mt-6 bg-surface-container-lowest rounded-2xl p-6 shadow-sm">
+              <h3 class="font-display font-bold text-lg mb-1">Connect with ID + PIN</h3>
+              <p class="text-sm text-on-surface-variant mb-4">Helping someone without an account? Ask for their ID + PIN.</p>
+              <div class="flex gap-2 max-w-md">
+                <input id="manual-id" inputmode="numeric" placeholder="Device ID" class="auth-input !w-auto flex-1">
+                <button id="btn-manual" class="px-6 rounded-xl bg-primary text-on-primary font-semibold">Go</button>
+              </div>
+            </div>
+
+            <div class="mt-6 bg-surface-container-lowest rounded-2xl p-6 shadow-sm" id="how-card">
+              <h3 class="font-display font-bold text-lg mb-3">How it works</h3>
+              <ol class="text-sm text-on-surface-variant flex flex-col gap-2 list-none p-0 m-0">
+                <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-secondary-container text-primary text-xs font-bold grid place-items-center shrink-0">1</span><span><b class="text-on-surface">On the PC:</b> open <b class="text-on-surface">SWRemote-Agent.exe</b> — a window shows its ID and PIN.</span></li>
+                <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-secondary-container text-primary text-xs font-bold grid place-items-center shrink-0">2</span><span><b class="text-on-surface">Claim it:</b> tap <b class="text-on-surface">Add device</b> and enter the link code from the PC app.</span></li>
+                <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-secondary-container text-primary text-xs font-bold grid place-items-center shrink-0">3</span><span><b class="text-on-surface">Connect:</b> tap a device — you're signed in on both sides.</span></li>
+              </ol>
+              <p class="text-sm mt-4 text-on-surface-variant" id="acct-row"></p>
+            </div>
+          </div>
+
+          <!-- ============ DOWNLOADS PAGE ============ -->
+          <div id="page-downloads" class="hidden">
+            <div class="mb-6">
+              <h1 class="font-display font-bold text-4xl tracking-tight">Downloads</h1>
+              <p class="text-sm text-on-surface-variant mt-1" id="dl-version"></p>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
+              <div class="bg-surface-container-lowest rounded-2xl p-6 shadow-sm flex flex-col">
+                <div class="p-3.5 rounded-2xl bg-secondary-container text-primary mb-4 w-fit"><span class="material-symbols-outlined text-3xl">download</span></div>
+                <h3 class="font-display font-bold text-xl mb-2">SWRemote Setup</h3>
+                <p class="text-sm text-on-surface-variant leading-relaxed mb-6 flex-1">Recommended for your own PCs. Guided installer — Start Menu shortcuts, auto-start option, easy updates.</p>
+                <a href="/download/setup" class="block text-center py-3 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-semibold transition-colors">Download Setup.exe</a>
+                <p class="mt-3 text-xs text-outline text-center" id="dl-setup-meta"></p>
+              </div>
+              <div class="bg-surface-container-lowest rounded-2xl p-6 shadow-sm flex flex-col">
+                <div class="p-3.5 rounded-2xl bg-secondary-container text-primary mb-4 w-fit"><span class="material-symbols-outlined text-3xl">devices</span></div>
+                <h3 class="font-display font-bold text-xl mb-2">SWRemote Agent</h3>
+                <p class="text-sm text-on-surface-variant leading-relaxed mb-6 flex-1">Single file, no install. Double-click and share the ID + PIN — perfect for helping someone quickly.</p>
+                <a href="/download/agent" class="block text-center py-3 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-semibold transition-colors">Download Agent.exe</a>
+                <p class="mt-3 text-xs text-outline text-center" id="dl-agent-meta"></p>
+              </div>
+            </div>
+            <div class="bg-surface-container-lowest rounded-2xl p-6 shadow-sm">
+              <h3 class="font-display font-bold text-lg mb-3">Which one do I need?</h3>
+              <ol class="text-sm text-on-surface-variant flex flex-col gap-2 list-none p-0 m-0">
+                <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-secondary-container text-primary text-xs font-bold grid place-items-center shrink-0">1</span><span><b class="text-on-surface">Your own computer</b> → <b class="text-on-surface">Setup.exe</b>: installs once, stays updated.</span></li>
+                <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-secondary-container text-primary text-xs font-bold grid place-items-center shrink-0">2</span><span><b class="text-on-surface">Helping someone else</b> → send them <b class="text-on-surface">Agent.exe</b>: they run it, give you the ID + PIN, done.</span></li>
+              </ol>
+            </div>
+          </div>
+
+          <!-- ============ ACCOUNT PAGE ============ -->
+          <div id="page-account" class="hidden">
+            <div class="mb-6">
+              <h1 class="font-display font-bold text-4xl tracking-tight">Account</h1>
+              <p class="text-sm text-on-surface-variant mt-1">Your SWRemote identity</p>
+            </div>
+            <div class="bg-surface-container-lowest rounded-2xl p-6 shadow-sm max-w-2xl" id="account-card"></div>
+          </div>
+
+        </div>
+      </div>
+    </main>
+  </div>
+</section>
+<!-- ================= SESSION ================= -->
 <section id="scr-session" class="screen">
   <header class="topbar session-bar">
     <button id="btn-disconnect" class="icon-btn" title="Disconnect">✕</button>
@@ -173,35 +325,31 @@
   </nav>
   <input id="kbd-proxy" class="kbd-proxy" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
 
-  <!-- chat sheet -->
   <aside id="chat-panel" class="sheet hidden">
     <div class="sheet-head"><div class="sheet-grip"></div><b>Chat with this PC</b><button class="icon-btn" data-close="chat-panel">✕</button></div>
     <div id="chat-log" class="chat-log"></div>
     <div class="chat-input"><input id="chat-text" placeholder="Type a message…" maxlength="500"><button id="chat-send" class="primary">Send</button></div>
   </aside>
 
-  <!-- files sheet -->
   <aside id="files-panel" class="sheet hidden">
     <div class="sheet-head"><div class="sheet-grip"></div><b>Send file to this PC</b><button class="icon-btn" data-close="files-panel">✕</button></div>
     <div class="pad">
       <label class="file-drop" for="file-input">📁 Choose a file…<input id="file-input" type="file" hidden></label>
-      <button id="btn-send-file" class="primary" disabled>Send</button>
-      <p class="hint">Received files land in <b>Downloads\SWRemote</b> on the PC.</p>
+      <button id="btn-send-file" class="primary" disabled style="width:100%; margin-top:12px; background:linear-gradient(135deg,#2f7de1,#5aa2f5); color:#fff; border:0; border-radius:12px; padding:13px; font-weight:700; cursor:pointer;">Send</button>
       <div id="file-progress"></div>
+      <p class="hint">Received files land in <b>Downloads\SWRemote</b> on the PC.</p>
     </div>
   </aside>
 
-  <!-- quality popover -->
   <div id="quality-pop" class="popover hidden">
     <label for="q-quality">Quality</label>
     <select id="q-quality"><option value="30">Low — fast</option><option value="65" selected>Medium</option><option value="85">High — sharp</option></select>
     <label for="q-scale">Size</label>
     <select id="q-scale"><option value="0.5">Small</option><option value="0.8" selected>Normal</option><option value="1">Full</option></select>
   </div>
-  <div id="toast" class="toast"></div>
 </section>
 
-<!-- CLAIM modal (Phase 1) -->
+<!-- CLAIM modal -->
 <div id="claim-modal" class="modal hidden">
   <div class="modal-card">
     <div class="pin-dev"><img class="logo-img sm" src="logo.png" alt=""><div><b>Claim a device</b><div class="pin-id">ENTER THE CODE FROM THE PC APP</div></div></div>
@@ -225,6 +373,8 @@
     </div>
   </div>
 </div>
+
+<div id="toast" class="toast"></div>
 
 <script src="app.js"></script>
 </body>
