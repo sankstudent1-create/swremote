@@ -41,22 +41,13 @@ Tradeoff: the address changes each time the file is re-run, and the PC must stay
 on and connected while you want remote access. (Manual alternative: `cd server &&
 npm install && npm start`, then expose port 8080 yourself.)
 
-### 2. Install the agent on each Windows PC
+### 2. On the Windows PC — just open the exe
 
-**Recommended — the ready `.exe` (no Python needed):**
-1. Copy `agent-go/SWRemote-Agent.exe` to the Windows PC.
-2. Double-click it once — it creates `swremote.json` next to itself and prints your
-   **9-digit SWRemote ID** and PIN.
-3. Edit `swremote.json` (Notepad): set `server` to your relay address
-   (e.g. `wss://swremote-relay.onrender.com/ws` — note `wss`, not `https`),
-   and change `pin` to your own secret PIN.
-4. Run the `.exe` again and keep it open while you want the PC reachable.
-   Tip: press Win+R, type `shell:startup`, and drop a shortcut there for auto-start.
+1. Copy `agent-go/SWRemote-Agent.exe` to the Windows PC and double-click it. No install, no Python, nothing to configure.
+2. A window pops up showing your **9-digit ID** and **PIN** (a random PIN is created automatically on first run).
+3. Give the ID + PIN to whoever will connect. Keep the exe window open while you want the PC reachable.
 
-**Alternative — Python agent** (`agent/` folder): double-click `install.bat`
-(installs Python libraries once, needs internet), enter server + PIN when asked.
-Same features; needs Python on the PC.
-
+That's it — exactly like AnyDesk.
 ### 3. Open the console on your phone
 
 1. Go to `https://your-name.onrender.com` (your server address) in the phone browser.
