@@ -53,3 +53,28 @@ create policy "own device settings" on device_settings
   for all using (auth.uid() = (select user_id from devices where devices.id = device_settings.device_id));
 create policy "own branding" on branding
   for all using (auth.uid() = user_id);
+
+-- Auto-create a profiles row for every new auth user (standard Supabase pattern).
+-- Without this, inserts into devices/branding fail on the profiles foreign key.
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  insert into public.profiles (id)
+  values (new.id)
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- backfill profiles for users who signed up before the trigger existed
+insert into public.profiles (id)
+select id from auth.users
+on conflict (id) do nothing;

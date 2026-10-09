@@ -25,14 +25,14 @@ const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/+$/, "");
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
 const sbOn = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
 
-async function sb(path, { method = "GET", body = null, token = null } = {}) {
+async function sb(path, { method = "GET", body = null, token = null, upsert = false } = {}) {
   const r = await fetch(SUPABASE_URL + path, {
     method,
     headers: {
       apikey: SUPABASE_ANON_KEY,
       Authorization: "Bearer " + (token || SUPABASE_ANON_KEY),
       "Content-Type": "application/json",
-      Prefer: "return=representation",
+      Prefer: upsert ? "return=representation,resolution=merge-duplicates" : "return=representation",
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -183,6 +183,8 @@ const httpServer = http.createServer((req, res) => {
       if (!entry) return done(404, { error: "code not found or already claimed" });
       const [agentId, d] = entry;
       try {
+        // ensure the profiles row exists (self-heals if the DB trigger is missing)
+        await sb("/rest/v1/profiles", { method: "POST", token: bearerToken(req), upsert: true, body: [{ id: user.id }] });
         const r = await sb("/rest/v1/devices", {
           method: "POST",
           token: bearerToken(req),
