@@ -195,7 +195,7 @@ func randomID() string {
 }
 
 func loadConfig() *Config {
-	cfg := &Config{Server: "wss://localhost:8080/ws", FPS: 10, Quality: 60, Scale: 0.75, PIN: "123456"}
+	cfg := &Config{Server: "ws://localhost:8080/ws", FPS: 10, Quality: 60, Scale: 0.75, PIN: "123456"}
 	if hn, err := os.Hostname(); err == nil {
 		cfg.Name = hn
 	}
