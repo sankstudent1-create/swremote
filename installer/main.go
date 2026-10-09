@@ -53,6 +53,12 @@ func main() {
 		"logo-mark.png":      logoMark,
 	}
 	for name, data := range files {
+		if name == "setup.ps1" {
+			// UTF-8 BOM: without it, Windows PowerShell 5.1 reads the script
+			// as ANSI, mangles every non-ASCII char (—, •, →, ✓, emoji) and
+			// the whole wizard fails to parse.
+			data = append([]byte{0xEF, 0xBB, 0xBF}, data...)
+		}
 		if err := os.WriteFile(filepath.Join(tmp, name), data, 0644); err != nil {
 			fatal("SWRemote Setup", "Could not unpack installer files:\n"+err.Error())
 		}
