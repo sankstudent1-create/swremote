@@ -21,6 +21,23 @@
 </head>
 <body>
 
+<!-- ======= SCREEN: account (Phase 1) ======= -->
+<section id="scr-auth" class="screen">
+  <div class="card login-card">
+    <img class="login-logo" src="logo.png" alt="SWRemote">
+    <h1 id="auth-title">Welcome back</h1>
+    <p class="login-tag" id="auth-sub">Sign in to see your devices</p>
+    <label for="auth-email">Email</label>
+    <input id="auth-email" type="email" placeholder="you@example.com" autocomplete="email">
+    <label for="auth-pass">Password</label>
+    <input id="auth-pass" type="password" placeholder="••••••••" autocomplete="current-password">
+    <button id="btn-auth-go" class="primary">Sign in</button>
+    <p class="hint"><a href="#" id="auth-toggle">New here? Create an account</a></p>
+    <p class="hint" id="auth-err" style="color:var(--red); display:none;"></p>
+    <p class="login-brandline">or <a href="#" id="auth-skip">continue without an account</a> (ID + PIN only)</p>
+  </div>
+</section>
+
 <!-- ======= SCREEN: server (rarely seen — address is built in) ======= -->
 <section id="scr-login" class="screen">
   <div class="card login-card">
@@ -54,16 +71,28 @@
         <h2>My devices</h2>
         <p class="page-sub" id="dev-count"></p>
       </div>
-      <button id="btn-refresh" class="icon-btn" title="Refresh">↻</button>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button id="btn-claim" class="ghost hidden" title="Add a device">＋ Add</button>
+        <button id="btn-refresh" class="icon-btn" title="Refresh">↻</button>
+      </div>
     </div>
     <div id="device-list" class="dev-grid"></div>
+    <div id="manual-join" class="how-card anim-rise d1 hidden">
+      <h3>Connect with ID + PIN</h3>
+      <div style="display:flex; gap:8px;">
+        <input id="manual-id" inputmode="numeric" placeholder="Device ID" style="margin:0;">
+        <button id="btn-manual" class="primary" style="width:auto; margin:0; padding:13px 22px;">Go</button>
+      </div>
+      <p class="hint" style="margin-top:10px;">Helping someone without an account? Ask for their ID + PIN.</p>
+    </div>
     <div class="how-card anim-rise d2">
       <h3>How it works</h3>
       <ol>
         <li><b>On the PC:</b> open <b>SWRemote-Agent.exe</b> — a popup shows its ID and PIN.</li>
-        <li><b>Here:</b> tap <b>Connect</b> on that PC and enter its PIN.</li>
-        <li><b>Share:</b> use <b>Share</b> on any PC to copy an invite link for someone else.</li>
+        <li><b>Claim it:</b> tap <b>＋ Add</b> and enter the code shown in the PC app — it appears here, privately.</li>
+        <li><b>Connect:</b> tap a device — no PIN needed, you're signed in on both sides.</li>
       </ol>
+      <p class="hint" id="acct-row" style="margin-top:12px;"></p>
     </div>
   </main>
   <div id="toast" class="toast"></div>
@@ -129,6 +158,19 @@
   </div>
   <div id="toast" class="toast"></div>
 </section>
+
+<!-- CLAIM modal (Phase 1) -->
+<div id="claim-modal" class="modal hidden">
+  <div class="modal-card">
+    <div class="pin-dev"><img class="logo-img sm" src="logo.png" alt=""><div><b>Claim a device</b><div class="pin-id">ENTER THE CODE FROM THE PC APP</div></div></div>
+    <input id="claim-input" type="text" inputmode="text" maxlength="12" placeholder="ABC123" autocomplete="off" style="text-align:center; font-size:24px; letter-spacing:6px; font-weight:700; padding:14px; margin-top:14px; text-transform:uppercase;">
+    <p class="hint">On the PC, the code is shown in the SWRemote window under "Link this device".</p>
+    <div class="modal-actions">
+      <button id="claim-cancel" class="ghost">Cancel</button>
+      <button id="claim-ok" class="primary">Claim</button>
+    </div>
+  </div>
+</div>
 
 <!-- PIN modal -->
 <div id="pin-modal" class="modal hidden">

@@ -18,6 +18,63 @@ const ADMIN_KEY = process.env.SWREMOTE_ADMIN || ""; // optional key guarding ful
 const DATA_FILE = path.join(__dirname, "devices.json");
 const CONSOLE_DIR = path.join(__dirname, "..", "console");
 
+// ---------- Supabase (Phase 1: accounts) ----------
+// Set SUPABASE_URL + SUPABASE_ANON_KEY in the environment to enable accounts.
+// Without them the relay behaves exactly as before (ID+PIN only).
+const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/+$/, "");
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
+const sbOn = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
+
+async function sb(path, { method = "GET", body = null, token = null } = {}) {
+  const r = await fetch(SUPABASE_URL + path, {
+    method,
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: "Bearer " + (token || SUPABASE_ANON_KEY),
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const txt = await r.text();
+  let json = null;
+  try { json = txt ? JSON.parse(txt) : null; } catch {}
+  return { ok: r.ok, status: r.status, json };
+}
+
+// verify a Supabase access token -> { id, email } or null
+async function sbVerify(token) {
+  if (!sbOn || !token) return null;
+  try {
+    const r = await sb("/auth/v1/user", { token });
+    if (r.ok && r.json && r.json.id) return { id: r.json.id, email: r.json.email };
+  } catch {}
+  return null;
+}
+
+// does this user own the device with this agent_id?
+async function sbOwns(token, agentId) {
+  try {
+    const r = await sb("/rest/v1/devices?agent_id=eq." + encodeURIComponent(agentId) + "&select=id", { token });
+    return r.ok && Array.isArray(r.json) && r.json.length > 0;
+  } catch { return false; }
+}
+
+// list the user's claimed devices from Supabase
+async function sbMyDevices(token) {
+  try {
+    const r = await sb("/rest/v1/devices?select=id,agent_id,name,last_seen&order=name", { token });
+    if (r.ok && Array.isArray(r.json)) return r.json;
+  } catch {}
+  return [];
+}
+
+function bearerToken(req) {
+  const h = req.headers.authorization || "";
+  const m = h.match(/^Bearer\s+(.+)$/i);
+  return m ? m[1] : null;
+}
+
 // ---------- tiny JSON store (free local storage) ----------
 let store = { devices: {} };
 try {
@@ -66,6 +123,31 @@ const httpServer = http.createServer((req, res) => {
     return res.end(JSON.stringify({ ok: true, service: "swremote-relay", ts: Date.now(), online: agents.size }));
   }
   if (url.pathname === "/api/devices") {
+    // Phase 1: with Supabase on, devices are private per account.
+    if (sbOn) {
+      const finish = (list) => {
+        res.writeHead(200, { "Content-Type": "application/json", ...cors });
+        res.end(JSON.stringify({ devices: list }));
+      };
+      (async () => {
+        const user = await sbVerify(bearerToken(req));
+        if (!user) return finish([]);
+        const rows = await sbMyDevices(bearerToken(req));
+        finish(rows.map((row) => {
+          const live = agents.get(row.agent_id);
+          return {
+            id: row.agent_id, name: row.name || row.agent_id,
+            platform: "windows",
+            online: !!(live && live.ws && live.ws.readyState === 1),
+            viewers: live ? live.viewers.size : 0,
+            screen: live ? live.screen : null,
+            lastSeen: live ? live.lastSeen : (row.last_seen || null),
+            mine: true,
+          };
+        }));
+      })().catch(() => finish([]));
+      return;
+    }
     const full = ADMIN_KEY && url.searchParams.get("admin") === ADMIN_KEY;
     const list = Object.entries(store.devices).map(([id, d]) => {
       const p = devicePublic(id, d, agents.get(id));
@@ -73,6 +155,46 @@ const httpServer = http.createServer((req, res) => {
     });
     res.writeHead(200, { "Content-Type": "application/json", ...cors });
     return res.end(JSON.stringify({ devices: list }));
+  }
+  if (url.pathname === "/api/config") {
+    // public client config: Supabase URL + anon key (public by design)
+    res.writeHead(200, { "Content-Type": "application/json", ...cors });
+    return res.end(JSON.stringify({
+      supabaseUrl: SUPABASE_URL || null,
+      supabaseAnonKey: SUPABASE_ANON_KEY || null,
+    }));
+  }
+  if (url.pathname === "/api/claim" && req.method === "POST") {
+    // claim a device by its 6-char code shown in the agent window
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", async () => {
+      const done = (code, obj) => {
+        res.writeHead(code, { "Content-Type": "application/json", ...cors });
+        res.end(JSON.stringify(obj));
+      };
+      if (!sbOn) return done(503, { error: "accounts not enabled" });
+      const user = await sbVerify(bearerToken(req));
+      if (!user) return done(401, { error: "sign in required" });
+      let code = "";
+      try { code = String(JSON.parse(body || "{}").claim_code || "").trim().toUpperCase(); } catch {}
+      if (!code) return done(400, { error: "claim_code required" });
+      const entry = Object.entries(store.devices).find(([, d]) => (d.claimCode || "").toUpperCase() === code);
+      if (!entry) return done(404, { error: "code not found or already claimed" });
+      const [agentId, d] = entry;
+      try {
+        const r = await sb("/rest/v1/devices", {
+          method: "POST",
+          token: bearerToken(req),
+          body: [{ user_id: user.id, agent_id: agentId, name: d.name || agentId, claimed_at: new Date().toISOString() }],
+        });
+        if (!r.ok) return done(502, { error: "could not save claim" });
+      } catch { return done(502, { error: "could not save claim" }); }
+      delete d.claimCode;
+      saveStore();
+      done(200, { ok: true, id: agentId, name: d.name || agentId });
+    });
+    return;
   }
   if (url.pathname === "/api/version") {
     const vf = path.join(__dirname, "..", "version.json");
@@ -141,10 +263,13 @@ wss.on("connection", (ws) => {
       };
       agents.set(deviceId, rec);
       // persist device (pin stored as salted hash only)
+      const prevStored = store.devices[deviceId] || {};
       store.devices[deviceId] = {
         name: rec.name, platform: rec.platform,
         pinHash: pinHash(deviceId, String(msg.pin)),
         lastSeen: rec.lastSeen,
+        // claim code survives re-registers until claimed (Phase 1)
+        claimCode: prevStored.claimCode || String(msg.claimCode || "").toUpperCase() || null,
       };
       saveStore();
       // re-attach existing viewers to the new socket
@@ -159,23 +284,36 @@ wss.on("connection", (ws) => {
     }
 
     // ---- viewer joins a device ----
+    // PIN join (guest / quick help) or token join (same account, no PIN — Phase 1)
     if (msg.t === "join") {
       const id = String(msg.id || "");
       const d = store.devices[id];
       if (!d) return send(ws, { t: "error", msg: "unknown device" });
+      const finishJoin = () => {
+        role = "viewer"; deviceId = id;
+        viewers.set(ws, { deviceId: id });
+        const rec = agents.get(id);
+        if (rec && rec.ws.readyState === 1) {
+          rec.viewers.add(ws);
+          send(ws, { t: "joined", id, name: d.name, screen: rec.screen, online: true });
+          send(rec.ws, { t: "viewer_joined", viewers: rec.viewers.size });
+        } else {
+          send(ws, { t: "joined", id, name: d.name, screen: null, online: false });
+        }
+      };
+      if (msg.token && sbOn) {
+        (async () => {
+          const user = await sbVerify(String(msg.token));
+          if (!user) return send(ws, { t: "error", msg: "sign in expired — please sign in again" });
+          if (!(await sbOwns(String(msg.token), id)))
+            return send(ws, { t: "error", msg: "this device is not on your account" });
+          finishJoin();
+        })().catch(() => send(ws, { t: "error", msg: "could not verify account" }));
+        return;
+      }
       if (pinHash(id, String(msg.pin || "")) !== d.pinHash)
         return send(ws, { t: "error", msg: "wrong pin" });
-      role = "viewer"; deviceId = id;
-      viewers.set(ws, { deviceId: id });
-      const rec = agents.get(id);
-      if (rec && rec.ws.readyState === 1) {
-        rec.viewers.add(ws);
-        send(ws, { t: "joined", id, name: d.name, screen: rec.screen, online: true });
-        send(rec.ws, { t: "viewer_joined", viewers: rec.viewers.size });
-      } else {
-        send(ws, { t: "joined", id, name: d.name, screen: null, online: false });
-      }
-      return;
+      return finishJoin();
     }
 
     // ---- relay JSON both ways ----

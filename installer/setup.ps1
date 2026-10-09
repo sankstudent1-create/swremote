@@ -8,7 +8,7 @@ Add-Type -AssemblyName System.Drawing
 
 $AppName    = "SWRemote"
 $Publisher  = "SWInfoSystems"
-$Version    = "3.0.0"
+$Version    = "3.1.0"
 $ExeName    = "SWRemote-Agent.exe"
 $InstallDir = Join-Path $env:LOCALAPPDATA "SWRemote"
 $SrcExe     = Join-Path $PSScriptRoot $ExeName

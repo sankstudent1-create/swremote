@@ -20,7 +20,7 @@ function serverBase() {
 function wsUrl() {
   return serverBase().replace(/^http/, "ws") + "/ws";
 }
-function initServer() {
+async function boot() {
   let saved = localStorage.getItem(LS_SERVER);
   if (!saved) {
     // first run: the relay address is built in — no typing needed
@@ -28,16 +28,143 @@ function initServer() {
     localStorage.setItem(LS_SERVER, saved);
   }
   $("server-url").value = saved;
-  show("scr-devices");
-  loadDevices(); // also handles ?id= direct invite links
+  await sbInit();
+  if (sbOn() && !sbSignedIn()) enterAuth();
+  else enterDevices(); // also handles ?id= direct invite links
 }
-$("btn-save-server").onclick = () => {
+$("btn-save-server").onclick = async () => {
   const v = $("server-url").value.trim().replace(/\/$/, "");
   if (!v) return;
   localStorage.setItem(LS_SERVER, v);
-  show("scr-devices"); loadDevices();
+  await sbInit();
+  if (sbOn() && !sbSignedIn()) enterAuth();
+  else enterDevices();
 };
 $("btn-change-server").onclick = () => { show("scr-login"); };
+
+/* ---------- Supabase Auth (Phase 1: accounts) ---------- */
+let sbCfg = { url: null, anonKey: null };
+let sbSession = null;
+try { sbSession = JSON.parse(localStorage.getItem("swr_sb") || "null"); } catch {}
+const sbOn = () => !!(sbCfg.url && sbCfg.anonKey);
+const sbSignedIn = () => !!(sbSession && sbSession.access_token);
+
+async function sbInit() {
+  try {
+    const r = await fetch(serverBase() + "/api/config");
+    const j = await r.json();
+    if (j.supabaseUrl && j.supabaseAnonKey) { sbCfg.url = j.supabaseUrl; sbCfg.anonKey = j.supabaseAnonKey; }
+  } catch {}
+}
+function sbSave(s) {
+  sbSession = s;
+  if (s) localStorage.setItem("swr_sb", JSON.stringify(s));
+  else localStorage.removeItem("swr_sb");
+}
+async function sbCall(path, body, token) {
+  const r = await fetch(sbCfg.url + path, {
+    method: "POST",
+    headers: { apikey: sbCfg.anonKey, "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) },
+    body: JSON.stringify(body || {}),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.msg || j.error_description || j.error || ("error " + r.status));
+  return j;
+}
+let authMode = "in"; // "in" | "up"
+function setAuthMode(m) {
+  authMode = m;
+  $("auth-title").textContent = m === "in" ? "Welcome back" : "Create account";
+  $("auth-sub").textContent = m === "in" ? "Sign in to see your devices" : "One account for all your devices";
+  $("btn-auth-go").textContent = m === "in" ? "Sign in" : "Create account";
+  $("auth-toggle").textContent = m === "in" ? "New here? Create an account" : "Have an account? Sign in";
+  $("auth-err").style.display = "none";
+}
+async function doAuth() {
+  const email = $("auth-email").value.trim(), pw = $("auth-pass").value;
+  const errEl = $("auth-err");
+  errEl.style.display = "none";
+  if (!email || !pw) { errEl.textContent = "Enter your email and password."; errEl.style.display = "block"; return; }
+  const btn = $("btn-auth-go");
+  btn.disabled = true;
+  try {
+    let j;
+    if (authMode === "up") {
+      j = await sbCall("/auth/v1/signup", { email, password: pw });
+      if (j.user && !j.session) throw new Error("Check your email for a confirmation link, then sign in.");
+    } else {
+      j = await sbCall("/auth/v1/token?grant_type=password", { email, password: pw });
+    }
+    if (!j.access_token) throw new Error("Could not start a session.");
+    sbSave({ access_token: j.access_token, refresh_token: j.refresh_token, expires_at: Date.now() + (j.expires_in || 3600) * 1000, email: j.user && j.user.email || email });
+    toast("Signed in as " + email);
+    enterDevices();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = "block";
+  } finally { btn.disabled = false; }
+}
+async function sbToken() {
+  if (!sbSession) return null;
+  if (Date.now() < sbSession.expires_at - 60000) return sbSession.access_token;
+  try {
+    const j = await sbCall("/auth/v1/token?grant_type=refresh_token", { refresh_token: sbSession.refresh_token });
+    sbSave({ access_token: j.access_token, refresh_token: j.refresh_token || sbSession.refresh_token, expires_at: Date.now() + (j.expires_in || 3600) * 1000, email: sbSession.email });
+    return sbSession.access_token;
+  } catch { sbSave(null); return null; }
+}
+function sbLogout() {
+  sbSave(null);
+  enterAuth();
+}
+$("btn-auth-go").onclick = doAuth;
+$("auth-toggle").onclick = (e) => { e.preventDefault(); setAuthMode(authMode === "in" ? "up" : "in"); };
+$("auth-skip").onclick = (e) => { e.preventDefault(); enterDevices(); };
+$("auth-pass").addEventListener("keydown", (e) => { if (e.key === "Enter") doAuth(); });
+
+function enterAuth() { setAuthMode("in"); show("scr-auth"); }
+function enterDevices() { show("scr-devices"); renderAcctRow(); loadDevices(); }
+function renderAcctRow() {
+  const el = $("acct-row");
+  const showAcct = sbOn();
+  $("btn-claim").classList.toggle("hidden", !showAcct || !sbSignedIn());
+  $("manual-join").classList.toggle("hidden", !(showAcct && !sbSignedIn()));
+  if (!showAcct) { el.innerHTML = ""; return; }
+  el.innerHTML = sbSignedIn()
+    ? `Signed in as <b>${esc(sbSession.email)}</b> — <a href="#" id="link-signout">sign out</a>`
+    : `You're browsing as a guest — <a href="#" id="link-signin">sign in</a> to see your devices.`;
+  const so = $("link-signout"), si = $("link-signin");
+  if (so) so.onclick = (e) => { e.preventDefault(); sbLogout(); };
+  if (si) si.onclick = (e) => { e.preventDefault(); enterAuth(); };
+}
+$("btn-claim").onclick = () => { $("claim-input").value = ""; $("claim-modal").classList.remove("hidden"); $("claim-input").focus(); };
+$("claim-cancel").onclick = () => $("claim-modal").classList.add("hidden");
+$("claim-ok").onclick = async () => {
+  const code = $("claim-input").value.trim();
+  if (!code) return;
+  const token = await sbToken();
+  if (!token) { enterAuth(); return; }
+  const btn = $("claim-ok");
+  btn.disabled = true;
+  try {
+    const r = await fetch(serverBase() + "/api/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+      body: JSON.stringify({ claim_code: code }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || "claim failed");
+    $("claim-modal").classList.add("hidden");
+    toast("Device claimed: " + (j.name || j.id));
+    loadDevices();
+  } catch (e) { toast(e.message); }
+  finally { btn.disabled = false; }
+};
+$("btn-manual").onclick = () => {
+  const id = $("manual-id").value.trim();
+  if (!id) return;
+  askPin({ id, name: id });
+};
 
 /* ---------- devices ---------- */
 function relTime(ts) {
@@ -64,12 +191,20 @@ async function loadDevices() {
   list.innerHTML = '<div class="skel"><div class="sk-row"><div class="sk sk-ico"></div><div style="flex:1"><div class="sk sk-t1"></div><div class="sk sk-t2"></div></div></div><div class="sk sk-btn"></div></div>'
     + '<div class="skel"><div class="sk-row"><div class="sk sk-ico"></div><div style="flex:1"><div class="sk sk-t1"></div><div class="sk sk-t2"></div></div></div><div class="sk sk-btn"></div></div>';
   try {
-    const r = await fetch(serverBase() + "/api/devices");
+    const headers = {};
+    const token = sbOn() ? await sbToken() : null;
+    if (token) headers.Authorization = "Bearer " + token;
+    const r = await fetch(serverBase() + "/api/devices", { headers });
     const j = await r.json();
     const online = j.devices.filter((d) => d.online).length;
     $("dev-count").textContent = j.devices.length
       ? `${online} of ${j.devices.length} online` : "";
-    if (!j.devices.length) { list.innerHTML = '<div class="empty"><span class="empty-ico">🖥️</span><b>No devices yet.</b><br>Open <b>SWRemote-Agent.exe</b> on a Windows PC first —<br>it will appear here automatically.</div>'; return; }
+    if (!j.devices.length) {
+      list.innerHTML = sbOn() && sbSignedIn()
+        ? '<div class="empty"><span class="empty-ico">🖥️</span><b>No devices yet.</b><br>Tap <b>＋ Add</b> and enter the code from the PC app.</div>'
+        : '<div class="empty"><span class="empty-ico">🖥️</span><b>No devices yet.</b><br>Open <b>SWRemote-Agent.exe</b> on a Windows PC first.</div>';
+      return;
+    }
     list.innerHTML = "";
     j.devices.forEach((d) => {
       const card = document.createElement("div");
@@ -85,9 +220,10 @@ async function loadDevices() {
         </div>
         <div class="dev-actions">
           <button class="ghost btn-share">⤴ Share</button>
-          <button class="primary btn-connect" ${d.online ? "" : "disabled"}>Connect</button>
+          <button class="primary btn-connect" ${d.online ? "" : "disabled"}>${d.mine ? "Open" : "Connect"}</button>
         </div>`;
-      if (d.online) card.querySelector(".btn-connect").onclick = () => askPin(d);
+      // own devices join with the account token — no PIN needed
+      if (d.online) card.querySelector(".btn-connect").onclick = () => d.mine ? startSessionToken(d) : askPin(d);
       card.querySelector(".btn-share").onclick = () => shareDevice(d);
       list.appendChild(card);
     });
@@ -95,7 +231,7 @@ async function loadDevices() {
     const want = new URLSearchParams(location.search).get("id");
     if (want) {
       const target = j.devices.find((d) => d.id === want.trim());
-      if (target && target.online) askPin(target);
+      if (target && target.online) (target.mine ? startSessionToken(target) : askPin(target));
       else if (target) toast("That PC is offline right now.");
     }
   } catch (e) {
@@ -138,6 +274,14 @@ $("pin-input").addEventListener("keydown", (e) => { if (e.key === "Enter") $("pi
 
 /* ---------- session ---------- */
 function startSession(d, pin) {
+  startSessionWith(d, { pin });
+}
+async function startSessionToken(d) {
+  const token = await sbToken();
+  if (!token) { enterAuth(); return; }
+  startSessionWith(d, { token });
+}
+function startSessionWith(d, creds) {
   deviceId = d.id; deviceName = d.name;
   $("sess-name").textContent = d.name;
   show("scr-session");
@@ -145,7 +289,7 @@ function startSession(d, pin) {
   closeWs();
   ws = new WebSocket(wsUrl());
   ws.binaryType = "arraybuffer";
-  ws.onopen = () => ws.send(JSON.stringify({ t: "join", id: deviceId, pin }));
+  ws.onopen = () => ws.send(JSON.stringify({ t: "join", id: deviceId, ...creds }));
   ws.onmessage = onWsMsg;
   ws.onclose = () => setStatus("Disconnected.", true);
   ws.onerror = () => setStatus("Connection error.", true);
@@ -154,7 +298,7 @@ function startSession(d, pin) {
   resetZoom();
 }
 function closeWs() { try { ws && ws.close(); } catch {} ws = null; }
-$("btn-disconnect").onclick = () => { closeWs(); show("scr-devices"); loadDevices(); };
+$("btn-disconnect").onclick = () => { closeWs(); enterDevices(); };
 function setStatus(txt, err) {
   const el = $("sess-status");
   el.textContent = txt;
@@ -531,4 +675,4 @@ $("btn-install").onclick = async () => {
   $("btn-install").classList.add("hidden");
 };
 bindGestures();
-initServer();
+boot();

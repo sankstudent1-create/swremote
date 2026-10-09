@@ -125,6 +125,9 @@ const (
 	ctlVer      = 115
 	ctlCopyID   = 116
 	ctlMeta     = 117
+	ctlClaimLbl = 118
+	ctlClaimVal = 119
+	ctlCopyClaim = 120
 )
 
 type wndClassExW struct {
@@ -318,7 +321,7 @@ func applyStatus() {
 	}
 }
 
-var grayLabels = map[int]bool{ctlIDLabel: true, ctlPINLabel: true, ctlLinkLbl: true, ctlVer: true, ctlMeta: true}
+var grayLabels = map[int]bool{ctlIDLabel: true, ctlPINLabel: true, ctlLinkLbl: true, ctlClaimLbl: true, ctlVer: true, ctlMeta: true}
 
 func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 	switch uint32(msg) {
@@ -355,7 +358,7 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		var ps paintStruct
 		hdc, _, _ := pBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 		// white background
-		var rcFull = [4]int32{0, 0, 430, 640}
+		var rcFull = [4]int32{0, 0, 430, 706}
 		pFillRect.Call(hdc, uintptr(unsafe.Pointer(&rcFull)), gWhiteBr)
 		// header gradient
 		v := [2]triVertex{
@@ -470,6 +473,9 @@ func onClick(id int) {
 	case ctlCopy:
 		copyToClipboard(inviteLink())
 		guiSetStatus("Invite link copied — send it to them.", true)
+	case ctlCopyClaim:
+		copyToClipboard(cfg.ClaimCode)
+		guiSetStatus("Link code copied — enter it in your dashboard.", true)
 	case ctlNewPIN:
 		newPIN := randomPIN()
 		cfgMu.Lock()
@@ -606,7 +612,7 @@ func runGUI() {
 		uintptr(unsafe.Pointer(clsName)),
 		uintptr(unsafe.Pointer(u16("SWRemote"))),
 		WS_OVERLAPPEDWINDOW&^0x00040000, // no maximize box
-		200, 120, 446, 679,
+		200, 120, 446, 745,
 		0, 0, 0, 0)
 	if hwnd == 0 {
 		return
@@ -626,13 +632,16 @@ func runGUI() {
 	mkCtl("STATIC", "INVITE LINK", 0, 320, 200, 200, 20, ctlLinkLbl, gFonts["lbl"])
 	mkCtl("EDIT", inviteLink(), WS_BORDER|ES_READONLY|ES_AUTOHSCROLL, 24, 342, 290, 30, ctlLinkEdit, gFonts["norm"])
 	mkCtl("BUTTON", "Copy", BS_PUSHBUTTON, 322, 340, 82, 34, ctlCopy, gFonts["norm"])
-	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON, 24, 392, 380, 40, ctlUpdate, gFonts["norm"])
-	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 24, 446, 380, 24, ctlAutoRun, gFonts["norm"])
-	mkCtl("msctls_progress32", "", 0, 24, 478, 380, 18, ctlProg, 0)
+	mkCtl("STATIC", "LINK THIS DEVICE", 0, 24, 388, 220, 20, ctlClaimLbl, gFonts["lbl"])
+	mkCtl("STATIC", cfg.ClaimCode, SS_LEFT, 24, 410, 220, 34, ctlClaimVal, gFonts["pin"])
+	mkCtl("BUTTON", "Copy code", BS_PUSHBUTTON, 300, 408, 104, 32, ctlCopyClaim, gFonts["norm"])
+	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON, 24, 458, 380, 40, ctlUpdate, gFonts["norm"])
+	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 24, 512, 380, 24, ctlAutoRun, gFonts["norm"])
+	mkCtl("msctls_progress32", "", 0, 24, 544, 380, 18, ctlProg, 0)
 	pSendMessageW.Call(gCtl[ctlProg], PBM_SETRANGE32, 0, 100)
 	pShowWindow.Call(gCtl[ctlProg], 0)
-	mkCtl("BUTTON", "Quit", BS_PUSHBUTTON, 24, 514, 380, 38, ctlQuit, gFonts["norm"])
-	mkCtl("STATIC", "v"+appVersion+"   •   swremote-relay.onrender.com", SS_LEFT, 24, 566, 380, 18, ctlVer, gFonts["small"])
+	mkCtl("BUTTON", "Quit", BS_PUSHBUTTON, 24, 580, 380, 38, ctlQuit, gFonts["norm"])
+	mkCtl("STATIC", "v"+appVersion+"   •   swremote-relay.onrender.com", SS_LEFT, 24, 632, 380, 18, ctlVer, gFonts["small"])
 
 	// gray labels are colored via WM_CTLCOLORSTATIC (grayLabels set)
 	if getAutoRun() {

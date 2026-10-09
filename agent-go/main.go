@@ -29,8 +29,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// appVersion is overridden at build time: -ldflags "-X main.appVersion=3.0.0"
-var appVersion = "3.0.0"
+// appVersion is overridden at build time: -ldflags "-X main.appVersion=3.1.0"
+var appVersion = "3.1.0"
 
 var (
 	cfg   *Config
@@ -184,13 +184,14 @@ func lockWorkstation() {
 // ---------------- config ----------------
 
 type Config struct {
-	Server   string `json:"server"`
-	DeviceID string `json:"device_id"`
-	Name     string `json:"name"`
-	PIN      string `json:"pin"`
-	FPS      int    `json:"fps"`
-	Quality  int    `json:"quality"`
-	Scale    float64 `json:"scale"`
+	Server    string `json:"server"`
+	DeviceID  string `json:"device_id"`
+	Name      string `json:"name"`
+	PIN       string `json:"pin"`
+	FPS       int    `json:"fps"`
+	Quality   int    `json:"quality"`
+	Scale     float64 `json:"scale"`
+	ClaimCode string `json:"claim_code"` // Phase 1: shown in the window, entered once in the dashboard
 }
 
 func configPath() string {
@@ -213,7 +214,18 @@ func randomPIN() string {
 	_, _ = rand.Read(b[:])
 	var sb strings.Builder
 	for _, v := range b {
-		sb.WriteByte(byte('0' + int(v) % 10))
+		sb.WriteByte(byte('0' + int(v)%10))
+	}
+	return sb.String()
+}
+
+func randomClaimCode() string {
+	const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789" // no confusing 0/O/1/I/L
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	var sb strings.Builder
+	for _, v := range b {
+		sb.WriteByte(chars[int(v)%len(chars)])
 	}
 	return sb.String()
 }
@@ -231,6 +243,9 @@ func loadConfig() *Config {
 	}
 	if c.PIN == "" {
 		c.PIN = randomPIN()
+	}
+	if c.ClaimCode == "" {
+		c.ClaimCode = randomClaimCode()
 	}
 	if c.FPS < 1 || c.FPS > 30 {
 		c.FPS = 30
@@ -471,7 +486,7 @@ func runSession(cfg *Config) error {
 
 	reg, _ := json.Marshal(map[string]any{
 		"t": "register", "id": cfg.DeviceID, "name": cfg.Name,
-		"pin": cfg.PIN, "platform": "windows",
+		"pin": cfg.PIN, "platform": "windows", "claimCode": cfg.ClaimCode,
 	})
 	if err := ws.WriteMessage(websocket.TextMessage, reg); err != nil {
 		return err

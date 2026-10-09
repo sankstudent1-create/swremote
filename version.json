@@ -1,5 +1,5 @@
 {
-  "version": "3.0.0",
-  "notes": "v3.0 streaming engine: tiled dirty-region screen sharing (only changed screen regions are sent) for 25-30 fps at full sharpness, remote cursor overlay, plus in-depth docs (architecture, protocol, performance, v3 roadmap).",
+  "version": "3.1.0",
+  "notes": "Phase 1 accounts: sign up / sign in with email + password (Supabase). Your claimed devices show privately on your dashboard and connect with one tap — no PIN. Devices are invisible to everyone else. ID+PIN quick connect still works for guests. The PC app shows a link code to claim it.",
   "url": "https://swremote-relay.onrender.com/download/agent"
 }
