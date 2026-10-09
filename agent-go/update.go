@@ -196,6 +196,7 @@ func doUninstall() {
 }
 
 func runUpdateFlow() {
+	defer updateRunning.Store(false)
 	guiSetUpdateBtn("Checking…", false)
 	info, err := fetchVersion()
 	if err != nil {

@@ -29,8 +29,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// appVersion is overridden at build time: -ldflags "-X main.appVersion=2.0.0"
-var appVersion = "2.0.0"
+// appVersion is overridden at build time: -ldflags "-X main.appVersion=2.2.0"
+var appVersion = "2.2.0"
 
 var (
 	cfg   *Config

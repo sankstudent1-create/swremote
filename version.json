@@ -1,1 +1,5 @@
-{"notes":"Fixes the app closing on its own (diagnostic log, panic-safe, keep-alive, faster reconnect) — plus sharper adaptive stream quality, refreshed app window with viewers/uptime, and a real app icon.","url":"https://swremote-relay.onrender.com/download/agent","version":"2.1.0"}
+{
+  "version": "2.2.0",
+  "notes": "Design edition: AI logo inside the PC app window, premium website polish (animated login, skeleton loading, smoother buttons), update-check popup loop fixed, installer now reports errors instead of failing silently.",
+  "url": "https://swremote-relay.onrender.com/download/agent"
+}

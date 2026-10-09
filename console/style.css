@@ -182,3 +182,113 @@ button.ghost{background:var(--accent-soft); color:var(--accent-ink); padding:9px
 .modal-actions{display:flex; gap:10px; margin-top:6px;}
 .modal-actions .primary{margin-top:0; flex:1.4;}
 .modal-actions .ghost{flex:1; padding:13px 0;}
+
+/* ================= v2.2 design polish ================= */
+
+/* entrance motion */
+@keyframes riseIn{from{opacity:0; transform:translateY(14px);} to{opacity:1; transform:none;}}
+@keyframes fadeIn{from{opacity:0;} to{opacity:1;}}
+.screen.active .anim-rise{animation:riseIn .45s cubic-bezier(.22,.8,.32,1) both;}
+.screen.active .anim-rise.d1{animation-delay:.06s;}
+.screen.active .anim-rise.d2{animation-delay:.12s;}
+.screen.active .anim-rise.d3{animation-delay:.18s;}
+
+/* ---------- login hero ---------- */
+#scr-login{
+  background:url("login-bg.jpg") center/cover no-repeat, radial-gradient(600px 300px at 50% 0%, #e3edfb 0%, var(--bg) 70%);
+}
+.login-card{
+  padding:44px 36px 36px; width:min(420px,100%); text-align:center;
+  background:rgba(255,255,255,.82); backdrop-filter:blur(16px);
+  border:1px solid rgba(255,255,255,.7);
+  box-shadow:0 24px 60px rgba(47,125,225,.14), 0 4px 14px rgba(22,35,58,.06);
+  animation:riseIn .5s cubic-bezier(.22,.8,.32,1) both;
+}
+.login-logo{width:84px; height:84px; border-radius:26px; margin:0 auto;
+  box-shadow:0 12px 32px rgba(47,125,225,.35); background:#fff;}
+.login-card h1{font-size:32px; margin:18px 0 6px;}
+.login-tag{font-size:14.5px; color:var(--muted); margin:0 0 6px;}
+.login-feats{display:flex; flex-direction:column; gap:9px; margin:20px 0 4px; text-align:left;}
+.login-feat{display:flex; gap:11px; align-items:center; font-size:13.5px; color:#3c4c66;
+  background:rgba(233,241,253,.6); border-radius:12px; padding:10px 13px;}
+.login-feat .f-ico{width:30px; height:30px; flex:none; border-radius:9px; display:flex;
+  align-items:center; justify-content:center; font-size:16px; background:#fff;
+  box-shadow:0 2px 8px rgba(22,35,58,.08);}
+.login-feat b{color:var(--ink);}
+.login-brandline{margin:22px 0 0; font-size:12px; color:var(--muted); letter-spacing:.3px;}
+
+/* ---------- devices: skeleton + stagger ---------- */
+.skel{border-radius:var(--radius); padding:18px; background:var(--card);
+  border:1px solid var(--line); box-shadow:var(--shadow-sm);}
+.skel .sk{border-radius:8px; background:linear-gradient(90deg,#eef1f6 25%,#e2e9f2 50%,#eef1f6 75%);
+  background-size:200% 100%; animation:shimmer 1.3s infinite;}
+@keyframes shimmer{from{background-position:200% 0;} to{background-position:-200% 0;}}
+.skel .sk-row{display:flex; gap:12px; align-items:center; margin-bottom:14px;}
+.skel .sk-ico{width:48px; height:48px; border-radius:15px; flex:none;}
+.skel .sk-t1{height:15px; width:55%; margin-bottom:8px;}
+.skel .sk-t2{height:12px; width:35%;}
+.skel .sk-btn{height:38px; margin-top:4px;}
+.dev-card{animation:riseIn .4s cubic-bezier(.22,.8,.32,1) both;}
+.dev-grid .dev-card:nth-child(2){animation-delay:.05s;}
+.dev-grid .dev-card:nth-child(3){animation-delay:.1s;}
+.dev-grid .dev-card:nth-child(4){animation-delay:.15s;}
+.dev-grid .dev-card:nth-child(5){animation-delay:.2s;}
+.dev-grid .dev-card:nth-child(n+6){animation-delay:.25s;}
+.dev-card:hover{transform:translateY(-3px); box-shadow:0 14px 34px rgba(22,35,58,.12);}
+.dev-card:active{transform:scale(.99);}
+.dev-card{transition:transform .18s, box-shadow .18s;}
+.empty{animation:riseIn .4s ease both;}
+.empty .empty-ico{font-size:44px; display:block; margin-bottom:10px;}
+.empty b{color:var(--ink);}
+
+/* refresh spin */
+#btn-refresh.spin{animation:spin .7s linear;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* ---------- buttons: richer feel ---------- */
+button.primary{background:var(--grad); color:#fff; width:100%; margin-top:18px; font-weight:700;
+  box-shadow:0 8px 20px rgba(47,125,225,.32), inset 0 1px 0 rgba(255,255,255,.25);
+  transition:transform .12s, box-shadow .18s, filter .18s;}
+button.primary:hover{filter:brightness(1.06); box-shadow:0 10px 26px rgba(47,125,225,.4), inset 0 1px 0 rgba(255,255,255,.25);}
+button.primary:active{transform:scale(.97);}
+button.ghost{transition:background .15s, transform .12s;}
+button.ghost:hover{background:#dce8fa;}
+button.ghost:active{transform:scale(.96);}
+.icon-btn{transition:background .15s, transform .12s;}
+.icon-btn:hover{background:#dce8fa;}
+.icon-btn:active{transform:scale(.92);}
+
+/* focus visibility */
+button:focus-visible, input:focus-visible, select:focus-visible{
+  outline:2px solid var(--accent); outline-offset:2px;}
+
+/* ---------- toast with icon ---------- */
+.toast{display:flex; align-items:center; gap:9px;}
+.toast::before{content:"✓"; width:22px; height:22px; flex:none; border-radius:50%;
+  background:rgba(255,255,255,.18); display:flex; align-items:center; justify-content:center; font-size:13px;}
+
+/* ---------- PIN modal polish ---------- */
+.modal-card{border:1px solid rgba(255,255,255,.6); box-shadow:0 24px 60px rgba(22,35,58,.22);}
+.pin-dev .logo-img{box-shadow:0 4px 12px rgba(47,125,225,.25);}
+
+/* ---------- session toolbar states ---------- */
+.toolbar button{transition:background .15s, color .15s, transform .1s; position:relative;}
+.toolbar button:active{background:#24344f; transform:scale(.94);}
+.toolbar button.on{color:#fff;}
+.toolbar button.on::after{content:""; position:absolute; top:4px; width:5px; height:5px;
+  border-radius:50%; background:var(--accent-2);}
+.sess-title .dot.on{animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{box-shadow:0 0 8px rgba(34,163,95,.55);} 50%{box-shadow:0 0 2px rgba(34,163,95,.2);}}
+
+/* ---------- sheets polish ---------- */
+.sheet{border:1px solid var(--line);}
+.sheet-head{padding-top:16px;}
+.chat-msg{animation:riseIn .25s ease both; box-shadow:0 2px 8px rgba(22,35,58,.06);}
+.file-drop{transition:border-color .15s, background .15s, transform .12s;}
+.file-drop:hover{border-color:var(--accent); background:#e2ecfc;}
+.file-drop:active{transform:scale(.99);}
+.popover{animation:popIn .2s ease;}
+
+/* topbar: subtle gradient hairline */
+.topbar{box-shadow:0 1px 0 rgba(47,125,225,.06);}
+.page-head h2{font-size:24px;}

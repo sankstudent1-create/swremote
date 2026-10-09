@@ -61,14 +61,15 @@ function toast(msg) {
 }
 async function loadDevices() {
   const list = $("device-list");
-  list.innerHTML = '<div class="empty">Loading…</div>';
+  list.innerHTML = '<div class="skel"><div class="sk-row"><div class="sk sk-ico"></div><div style="flex:1"><div class="sk sk-t1"></div><div class="sk sk-t2"></div></div></div><div class="sk sk-btn"></div></div>'
+    + '<div class="skel"><div class="sk-row"><div class="sk sk-ico"></div><div style="flex:1"><div class="sk sk-t1"></div><div class="sk sk-t2"></div></div></div><div class="sk sk-btn"></div></div>';
   try {
     const r = await fetch(serverBase() + "/api/devices");
     const j = await r.json();
     const online = j.devices.filter((d) => d.online).length;
     $("dev-count").textContent = j.devices.length
       ? `${online} of ${j.devices.length} online` : "";
-    if (!j.devices.length) { list.innerHTML = '<div class="empty">No devices yet.<br>Open <b>SWRemote-Agent.exe</b> on a Windows PC first.</div>'; return; }
+    if (!j.devices.length) { list.innerHTML = '<div class="empty"><span class="empty-ico">🖥️</span><b>No devices yet.</b><br>Open <b>SWRemote-Agent.exe</b> on a Windows PC first —<br>it will appear here automatically.</div>'; return; }
     list.innerHTML = "";
     j.devices.forEach((d) => {
       const card = document.createElement("div");
@@ -99,7 +100,7 @@ async function loadDevices() {
     }
   } catch (e) {
     $("dev-count").textContent = "";
-    list.innerHTML = `<div class="empty">Cannot reach the server.<br>${esc(e.message)}</div>`;
+    list.innerHTML = `<div class="empty"><span class="empty-ico">📡</span><b>Cannot reach the server.</b><br>${esc(e.message)}<br>Check your connection and tap refresh.</div>`;
   }
 }
 function shareDevice(d) {
@@ -109,7 +110,11 @@ function shareDevice(d) {
     navigator.clipboard.writeText(link).then(done).catch(() => prompt("Copy this invite link:", link));
   else prompt("Copy this invite link:", link);
 }
-$("btn-refresh").onclick = loadDevices;
+$("btn-refresh").onclick = () => {
+  const b = $("btn-refresh");
+  b.classList.remove("spin"); void b.offsetWidth; b.classList.add("spin");
+  loadDevices();
+};
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
 /* ---------- PIN modal ---------- */

@@ -1,6 +1,6 @@
 // SWRemote Setup — single-file Windows installer.
-// Embeds the agent .exe and the WPF wizard (setup.ps1), extracts both to a
-// temp folder and runs the wizard. No admin rights needed.
+// Embeds the agent .exe, the WPF wizard (setup.ps1) and artwork, extracts
+// everything to a temp folder and runs the wizard. No admin rights needed.
 package main
 
 import (
@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
+	"unsafe"
 )
 
 //go:embed setup.ps1
@@ -22,30 +24,65 @@ var installArt []byte
 //go:embed logo-mark.png
 var logoMark []byte
 
+var (
+	user32       = syscall.NewLazyDLL("user32.dll")
+	pMessageBoxW = user32.NewProc("MessageBoxW")
+)
+
+func fatal(title, msg string) {
+	// keep the UTF-16 buffers alive in locals for the whole modal call
+	t, _ := syscall.UTF16FromString(title)
+	m, _ := syscall.UTF16FromString(msg)
+	pMessageBoxW.Call(0, uintptr(unsafe.Pointer(&m[0])), uintptr(unsafe.Pointer(&t[0])), 0x10 /*MB_ICONERROR*/)
+	os.Exit(1)
+}
+
 func main() {
+	uninstall := len(os.Args) > 1 && os.Args[1] == "--uninstall"
+
 	tmp, err := os.MkdirTemp("", "SWRemoteSetup")
 	if err != nil {
-		return
+		fatal("SWRemote Setup", "Could not create temp folder:\n"+err.Error())
 	}
 	defer os.RemoveAll(tmp)
 
 	files := map[string][]byte{
-		"setup.ps1":        []byte(setupPS1),
+		"setup.ps1":          []byte(setupPS1),
 		"SWRemote-Agent.exe": agentExe,
-		"install-art.png":  installArt,
-		"logo-mark.png":    logoMark,
+		"install-art.png":    installArt,
+		"logo-mark.png":      logoMark,
 	}
 	for name, data := range files {
 		if err := os.WriteFile(filepath.Join(tmp, name), data, 0644); err != nil {
-			return
+			fatal("SWRemote Setup", "Could not unpack installer files:\n"+err.Error())
 		}
 	}
 
+	systemRoot := os.Getenv("SystemRoot")
+	if systemRoot == "" {
+		systemRoot = `C:\Windows`
+	}
+	ps := filepath.Join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+	if _, err := os.Stat(ps); err != nil {
+		fatal("SWRemote Setup", "Windows PowerShell was not found on this PC.\nSWRemote Setup needs it to run.")
+	}
+
 	args := []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(tmp, "setup.ps1")}
-	if len(os.Args) > 1 && os.Args[1] == "--uninstall" {
+	if uninstall {
 		args = append(args, "-Uninstall")
 	}
-	ps := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
 	cmd := exec.Command(ps, args...)
-	_ = cmd.Run()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		fatal("SWRemote Setup",
+			"The setup wizard ran into a problem:\n\n"+err.Error()+"\n\nDetails:\n"+truncate(string(out), 1500))
+	}
+	_ = out
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }

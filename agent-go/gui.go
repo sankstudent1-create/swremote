@@ -2,15 +2,20 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
+
+//go:embed logo.bmp
+var logoBMP []byte
 
 // ---------- Win32 bindings ----------
 var (
@@ -33,6 +38,7 @@ var (
 	pSendMessageW      = u32.NewProc("SendMessageW")
 	pSetWindowTextW    = u32.NewProc("SetWindowTextW")
 	pLoadCursorW       = u32.NewProc("LoadCursorW")
+	pLoadImageW        = u32.NewProc("LoadImageW")
 	pBeginPaint        = u32.NewProc("BeginPaint")
 	pEndPaint          = u32.NewProc("EndPaint")
 	pOpenClipboard     = u32.NewProc("OpenClipboard")
@@ -42,6 +48,9 @@ var (
 	pCreateMutexW      = k32.NewProc("CreateMutexW")
 	pCreateFontW      = g32.NewProc("CreateFontW")
 	pCreateSolidBrush = g32.NewProc("CreateSolidBrush")
+	pCreateCompatibleDC = g32.NewProc("CreateCompatibleDC")
+	pDeleteDC         = g32.NewProc("DeleteDC")
+	pBitBlt           = g32.NewProc("BitBlt")
 	pSetTextColor     = g32.NewProc("SetTextColor")
 	pSetBkMode        = g32.NewProc("SetBkMode")
 	pSelectObject     = g32.NewProc("SelectObject")
@@ -193,7 +202,45 @@ var (
 	gCtl     = map[int]uintptr{}
 	gWhiteBr uintptr
 	gFonts   = map[string]uintptr{}
+	gLogoBmp uintptr
 )
+
+// loadLogoBitmap writes the embedded AI logo to a temp file and loads it as
+// an HBITMAP for the header. Returns 0 on failure (header draws without it).
+func loadLogoBitmap() uintptr {
+	if len(logoBMP) == 0 {
+		return 0
+	}
+	tmp, err := os.CreateTemp("", "swr-logo-*.bmp")
+	if err != nil {
+		return 0
+	}
+	path := tmp.Name()
+	if _, err := tmp.Write(logoBMP); err != nil {
+		tmp.Close()
+		os.Remove(path)
+		return 0
+	}
+	tmp.Close()
+	defer os.Remove(path) // bitmap lives in memory after LoadImageW
+	r, _, _ := pLoadImageW.Call(0, uintptr(unsafe.Pointer(u16(path))),
+		0 /*IMAGE_BITMAP*/, 0, 0, 0x10 /*LR_LOADFROMFILE*/)
+	return r
+}
+
+func drawLogo(hdc uintptr) {
+	if gLogoBmp == 0 {
+		return
+	}
+	memDC, _, _ := pCreateCompatibleDC.Call(hdc)
+	if memDC == 0 {
+		return
+	}
+	oldBmp, _, _ := pSelectObject.Call(memDC, gLogoBmp)
+	pBitBlt.Call(hdc, 20, 20, 64, 64, memDC, 0, 0, 0x00CC0020 /*SRCCOPY*/)
+	pSelectObject.Call(memDC, oldBmp)
+	pDeleteDC.Call(memDC)
+}
 
 func u16(s string) *uint16 { p, _ := windows.UTF16PtrFromString(s); return p }
 
@@ -321,12 +368,13 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		pSetBkMode.Call(hdc, TRANSPARENT)
 		pSetTextColor.Call(hdc, colorRef(255, 255, 255))
 		old, _, _ := pSelectObject.Call(hdc, gFonts["title"])
-		var rc = [4]int32{24, 14, 420, 60}
+		var rc = [4]int32{100, 14, 420, 60}
 		pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16("SWRemote"))), 8, uintptr(unsafe.Pointer(&rc)), 0)
 		pSelectObject.Call(hdc, gFonts["sub"])
-		rc = [4]int32{24, 58, 420, 84}
+		rc = [4]int32{100, 58, 420, 84}
 		pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16("by SWInfoSystems"))), 16, uintptr(unsafe.Pointer(&rc)), 0)
 		pSelectObject.Call(hdc, old)
+		drawLogo(hdc)
 		pEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 		return 0
 	case WM_APP_STATUS:
@@ -380,15 +428,16 @@ var pInvalidateRect = u32.NewProc("InvalidateRect")
 var pSetTimer = u32.NewProc("SetTimer")
 
 func msgBox(title, text string, flags uintptr) {
-	t := u16(title)
-	m := u16(text)
-	pMessageBoxW.Call(gHWND, uintptr(unsafe.Pointer(m)), uintptr(unsafe.Pointer(t)), flags)
+	// keep the UTF-16 buffers alive in locals for the whole modal call
+	t, _ := windows.UTF16FromString(title)
+	m, _ := windows.UTF16FromString(text)
+	pMessageBoxW.Call(gHWND, uintptr(unsafe.Pointer(&m[0])), uintptr(unsafe.Pointer(&t[0])), flags)
 }
 
 func msgBoxYesNo(title, text string) bool {
-	t := u16(title)
-	m := u16(text)
-	r, _, _ := pMessageBoxW.Call(gHWND, uintptr(unsafe.Pointer(m)), uintptr(unsafe.Pointer(t)), MB_YESNO|MB_ICONQUESTION)
+	t, _ := windows.UTF16FromString(title)
+	m, _ := windows.UTF16FromString(text)
+	r, _, _ := pMessageBoxW.Call(gHWND, uintptr(unsafe.Pointer(&m[0])), uintptr(unsafe.Pointer(&t[0])), MB_YESNO|MB_ICONQUESTION)
 	return r == IDYES
 }
 
@@ -410,6 +459,9 @@ func copyToClipboard(s string) {
 	pCloseClipboard.Call()
 }
 
+// updateRunning guards against stacked update flows from repeated clicks.
+var updateRunning atomic.Bool
+
 func onClick(id int) {
 	switch id {
 	case ctlCopyID:
@@ -427,6 +479,9 @@ func onClick(id int) {
 		setText(ctlPINValue, newPIN)
 		guiSetStatus("New PIN generated.", true)
 	case ctlUpdate:
+		if updateRunning.Swap(true) {
+			return // an update check is already in progress
+		}
 		go runUpdateFlow()
 	case ctlQuit:
 		pPostMessageW.Call(gHWND, WM_CLOSE, 0, 0)
@@ -531,6 +586,7 @@ func runGUI() {
 	gFonts["pin"] = mkFont("Consolas", 20, true)
 	gFonts["norm"] = mkFont("Segoe UI", 12, false)
 	gFonts["small"] = mkFont("Segoe UI", 9, false)
+	gLogoBmp = loadLogoBitmap()
 
 	cursor, _, _ := pLoadCursorW.Call(0, IDC_ARROW)
 	clsName := u16("SWRemoteWindow")

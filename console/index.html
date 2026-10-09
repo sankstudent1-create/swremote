@@ -24,13 +24,18 @@
 <!-- ======= SCREEN: server (rarely seen — address is built in) ======= -->
 <section id="scr-login" class="screen">
   <div class="card login-card">
-    <div class="logo"><img class="logo-img" src="logo.png" alt="SWRemote"></div>
+    <img class="login-logo" src="logo.png" alt="SWRemote">
     <h1>SWRemote</h1>
-    <p class="sub">Remote desktop by SWInfoSystems</p>
+    <p class="login-tag">Your PC, in your pocket — secure remote desktop</p>
+    <div class="login-feats">
+      <div class="login-feat"><span class="f-ico">⚡</span><span><b>Instant connect</b> — open the app on your PC, enter the PIN</span></div>
+      <div class="login-feat"><span class="f-ico">🔒</span><span><b>PIN-secured</b> — every session needs your private PIN</span></div>
+      <div class="login-feat"><span class="f-ico">📱</span><span><b>Any device</b> — control from phone, tablet or browser</span></div>
+    </div>
     <label for="server-url">Relay server</label>
     <input id="server-url" type="url" placeholder="https://your-relay.onrender.com" autocomplete="off">
     <button id="btn-save-server" class="primary">Connect</button>
-    <p class="hint">Usually you never see this screen — the server address is built into the app.</p>
+    <p class="login-brandline">by SWInfoSystems • Usually you never see this screen —<br>the server address is built into the app.</p>
   </div>
 </section>
 
@@ -44,7 +49,7 @@
     </div>
   </header>
   <main class="wrap">
-    <div class="page-head">
+    <div class="page-head anim-rise">
       <div>
         <h2>My devices</h2>
         <p class="page-sub" id="dev-count"></p>
@@ -52,7 +57,7 @@
       <button id="btn-refresh" class="icon-btn" title="Refresh">↻</button>
     </div>
     <div id="device-list" class="dev-grid"></div>
-    <div class="how-card">
+    <div class="how-card anim-rise d2">
       <h3>How it works</h3>
       <ol>
         <li><b>On the PC:</b> open <b>SWRemote-Agent.exe</b> — a popup shows its ID and PIN.</li>
