@@ -138,6 +138,8 @@ const (
 	ctlClaimVal = 119
 	ctlCopyClaim = 120
 	ctlViewLbl  = 121
+	ctlWakeLbl  = 122
+	ctlWakeVal  = 123
 )
 
 type wndClassExW struct {
@@ -379,7 +381,7 @@ func drawPill(hdc uintptr) {
 	pSelectObject.Call(hdc, oldF)
 }
 
-var grayLabels = map[int]bool{ctlIDLabel: true, ctlPINLabel: true, ctlLinkLbl: true, ctlClaimLbl: true, ctlViewLbl: true, ctlVer: true, ctlMeta: true}
+var grayLabels = map[int]bool{ctlIDLabel: true, ctlPINLabel: true, ctlLinkLbl: true, ctlClaimLbl: true, ctlViewLbl: true, ctlWakeLbl: true, ctlVer: true, ctlMeta: true}
 
 func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 	switch uint32(msg) {
@@ -694,7 +696,7 @@ func runGUI() {
 		uintptr(unsafe.Pointer(clsName)),
 		uintptr(unsafe.Pointer(u16("SWRemote"))),
 		WS_OVERLAPPEDWINDOW&^0x00040000, // no maximize box
-		200, 120, 446, 900,
+		200, 80, 446, 720,
 		0, 0, 0, 0)
 	if hwnd == 0 {
 		return
@@ -702,29 +704,33 @@ func runGUI() {
 	gHWND = hwnd
 
 	// controls (client coords) — v4 layout: status pill header + 4 cards
-	mkCtl("STATIC", "YOUR ID", 0, 28, 132, 220, 20, ctlIDLabel, gFonts["lbl"])
-	mkCtl("STATIC", cfg.DeviceID, SS_LEFT, 28, 154, 240, 44, ctlIDValue, gFonts["id"])
-	mkCtl("BUTTON", "Copy ID", BS_PUSHBUTTON, 296, 158, 96, 34, ctlCopyID, gFonts["norm"])
-	mkCtl("STATIC", "PIN", 0, 28, 252, 200, 20, ctlPINLabel, gFonts["lbl"])
-	mkCtl("STATIC", cfg.PIN, SS_LEFT, 28, 274, 200, 34, ctlPINValue, gFonts["pin"])
-	mkCtl("BUTTON", "New PIN", BS_PUSHBUTTON, 292, 272, 100, 32, ctlNewPIN, gFonts["norm"])
-	mkCtl("STATIC", "●", SS_LEFT, 28, 314, 20, 20, ctlDot, gFonts["norm"])
-	mkCtl("STATIC", "Starting…", SS_LEFT, 54, 314, 340, 20, ctlStatus, gFonts["norm"])
-	mkCtl("STATIC", "no viewers   •   just started", SS_LEFT, 28, 336, 364, 18, ctlMeta, gFonts["small"])
-	mkCtl("STATIC", "INVITE LINK", 0, 28, 380, 200, 20, ctlLinkLbl, gFonts["lbl"])
-	mkCtl("EDIT", inviteLink(), WS_BORDER|ES_READONLY|ES_AUTOHSCROLL, 28, 402, 258, 30, ctlLinkEdit, gFonts["norm"])
-	mkCtl("BUTTON", "Copy", BS_PUSHBUTTON, 296, 400, 96, 34, ctlCopy, gFonts["norm"])
-	mkCtl("STATIC", "LINK THIS DEVICE", 0, 28, 464, 220, 20, ctlClaimLbl, gFonts["lbl"])
-	mkCtl("STATIC", cfg.ClaimCode, SS_LEFT, 28, 486, 200, 34, ctlClaimVal, gFonts["pin"])
-	mkCtl("BUTTON", "Copy code", BS_PUSHBUTTON, 292, 484, 100, 32, ctlCopyClaim, gFonts["norm"])
-	mkCtl("STATIC", "VIEWERS", 0, 28, 548, 200, 20, ctlViewLbl, gFonts["lbl"])
-	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON, 28, 694, 374, 38, ctlUpdate, gFonts["norm"])
-	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 28, 742, 374, 22, ctlAutoRun, gFonts["norm"])
-	mkCtl("msctls_progress32", "", 0, 28, 770, 374, 16, ctlProg, 0)
+	// v8.1: compact layout (720px) — everything visible on 768px screens,
+	// no overlap between viewers and the update button.
+	mkCtl("STATIC", "YOUR ID", 0, 28, 118, 220, 18, ctlIDLabel, gFonts["lbl"])
+	mkCtl("STATIC", cfg.DeviceID, SS_LEFT, 28, 136, 240, 36, ctlIDValue, gFonts["id"])
+	mkCtl("BUTTON", "Copy ID", BS_PUSHBUTTON, 296, 138, 96, 32, ctlCopyID, gFonts["norm"])
+	mkCtl("STATIC", "PIN", 0, 28, 184, 200, 18, ctlPINLabel, gFonts["lbl"])
+	mkCtl("STATIC", cfg.PIN, SS_LEFT, 28, 202, 200, 30, ctlPINValue, gFonts["pin"])
+	mkCtl("BUTTON", "New PIN", BS_PUSHBUTTON, 292, 200, 100, 30, ctlNewPIN, gFonts["norm"])
+	mkCtl("STATIC", "●", SS_LEFT, 28, 242, 20, 18, ctlDot, gFonts["norm"])
+	mkCtl("STATIC", "Starting…", SS_LEFT, 54, 242, 340, 18, ctlStatus, gFonts["norm"])
+	mkCtl("STATIC", "INVITE LINK", 0, 28, 272, 200, 18, ctlLinkLbl, gFonts["lbl"])
+	mkCtl("EDIT", inviteLink(), WS_BORDER|ES_READONLY|ES_AUTOHSCROLL, 28, 290, 258, 28, ctlLinkEdit, gFonts["norm"])
+	mkCtl("BUTTON", "Copy", BS_PUSHBUTTON, 296, 288, 96, 32, ctlCopy, gFonts["norm"])
+	mkCtl("STATIC", "LINK THIS DEVICE", 0, 28, 330, 220, 18, ctlClaimLbl, gFonts["lbl"])
+	mkCtl("STATIC", cfg.ClaimCode, SS_LEFT, 28, 348, 200, 30, ctlClaimVal, gFonts["pin"])
+	mkCtl("BUTTON", "Copy code", BS_PUSHBUTTON, 292, 346, 100, 30, ctlCopyClaim, gFonts["norm"])
+	mkCtl("STATIC", "VIEWERS", 0, 28, 390, 200, 18, ctlViewLbl, gFonts["lbl"])
+	// viewers drawn at y=410+ (max 2 rows, 40px each = ends at 490)
+	mkCtl("STATIC", "WAKE-UP", 0, 28, 500, 200, 18, ctlWakeLbl, gFonts["lbl"])
+	mkCtl("STATIC", "Checking…", SS_LEFT, 28, 518, 364, 18, ctlWakeVal, gFonts["norm"])
+	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON, 28, 548, 374, 34, ctlUpdate, gFonts["norm"])
+	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 28, 590, 374, 20, ctlAutoRun, gFonts["norm"])
+	mkCtl("msctls_progress32", "", 0, 28, 614, 374, 14, ctlProg, 0)
 	pSendMessageW.Call(gCtl[ctlProg], PBM_SETRANGE32, 0, 100)
 	pShowWindow.Call(gCtl[ctlProg], 0)
-	mkCtl("BUTTON", "Quit", BS_PUSHBUTTON, 28, 794, 374, 36, ctlQuit, gFonts["norm"])
-	mkCtl("STATIC", "v"+appVersion+"   •   swremote-relay.onrender.com", SS_LEFT, 28, 838, 374, 16, ctlVer, gFonts["small"])
+	mkCtl("BUTTON", "Quit", BS_PUSHBUTTON, 28, 634, 374, 32, ctlQuit, gFonts["norm"])
+	mkCtl("STATIC", "v"+appVersion+"   •   swremote-relay.onrender.com", SS_LEFT, 28, 674, 374, 16, ctlVer, gFonts["small"])
 
 	// gray labels are colored via WM_CTLCOLORSTATIC (grayLabels set)
 	if getAutoRun() {
@@ -733,6 +739,7 @@ func runGUI() {
 
 	applyStatus()
 	refreshMeta()
+	refreshWakeStatus() // v8.1: show wake-up service status
 	pSetTimer.Call(hwnd, 1, 30000, 0) // refresh uptime every 30s
 	pShowWindow.Call(hwnd, SW_SHOW)
 	pUpdateWindow.Call(hwnd)

@@ -171,14 +171,14 @@ func drawViewers(hdc uintptr) {
 
 	if len(list) == 0 {
 		pSetTextColor.Call(hdc, colorRef(0x84, 0x94, 0xab))
-		var rc = [4]int32{28, 580, 400, 620}
+		var rc = [4]int32{28, 412, 400, 440}
 		pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16("No one is watching right now."))), 0xFFFFFFFF, uintptr(unsafe.Pointer(&rc)), 0)
 		pSelectObject.Call(hdc, oldF)
 		return
 	}
-	y := int32(576)
+	y := int32(408)
 	for i, v := range list {
-		if i >= 3 {
+		if i >= 2 {
 			break
 		}
 		// avatar (36×36) or initial tile

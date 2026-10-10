@@ -84,13 +84,20 @@ function avatarHTML(size, cls) {
 async function uploadAvatar(file) {
   const token = await sbToken();
   const uid = sbUserId();
+  if (!token || !uid) throw new Error("Sign in required");
   const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z]/g, "") || "jpg";
   const path = `${uid}/avatar.${ext}`;
-  const up = await fetch(sbUrl() + "/storage/v1/object/avatars/" + path, {
-    method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": file.type || "image/jpeg", "x-upsert": "true" },
-    body: file,
-  });
-  if (!up.ok) throw new Error("Upload failed");
+  let up;
+  try {
+    up = await fetch(sbUrl() + "/storage/v1/object/avatars/" + path, {
+      method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": file.type || "image/jpeg", "x-upsert": "true" },
+      body: file,
+    });
+  } catch (e) { throw new Error("Network error: " + e.message); }
+  if (!up.ok) {
+    const txt = await up.text().catch(() => "");
+    throw new Error(`Upload failed (${up.status}): ${txt.slice(0, 200) || up.statusText}`);
+  }
   const url = sbUrl() + "/storage/v1/object/public/avatars/" + path + "?t=" + Date.now();
   await sbCall("/rest/v1/profiles?id=eq." + uid, { avatar_url: url }, { Authorization: "Bearer " + token, "Content-Type": "application/json" }, "PATCH");
   myProfile.avatar_url = url;
@@ -103,24 +110,23 @@ function renderAccountPage() {
   const signed = sbOn() && sbSignedIn();
   const dname = myProfile.display_name || (signed ? sbSession.email.split("@")[0] : "");
   c.innerHTML = `
-    <div class="flex items-center gap-4 mb-6">
-      <div class="relative">
-        ${avatarHTML(56, "text-2xl")}
-        ${signed ? `<label class="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-primary text-on-primary grid place-items-center cursor-pointer shadow" title="Change picture">
-          <span class="material-symbols-outlined text-base">photo_camera</span>
+    <div class="flex flex-col items-center text-center mb-6">
+      <div class="relative mb-4">
+        ${avatarHTML(88, "text-4xl")}
+        ${signed ? `<label class="absolute -bottom-1 -right-1 w-9 h-9 rounded-full bg-primary text-on-primary grid place-items-center cursor-pointer shadow-lg hover:scale-105 transition-transform" title="Change picture">
+          <span class="material-symbols-outlined text-lg">photo_camera</span>
           <input type="file" id="avatar-file" accept="image/*" class="hidden">
         </label>` : ""}
       </div>
-      <div class="flex-1 min-w-0">
-        ${signed ? `<input id="acct-name" class="auth-input font-bold text-lg" value="${esc(dname)}" placeholder="Your name">`
-                 : `<div class="font-bold text-lg">Guest</div>`}
-        <div class="text-sm text-on-surface-variant">${signed ? esc(sbSession.email) : "Browsing without an account"}</div>
-      </div>
+      ${signed ? `<input id="acct-name" class="auth-input font-display font-bold text-2xl text-center mb-1" value="${esc(dname)}" placeholder="Your name">`
+               : `<div class="font-display font-bold text-2xl mb-1">Guest</div>`}
+      <div class="text-sm text-on-surface-variant">${signed ? esc(sbSession.email) : "Browsing without an account"}</div>
+      ${signed && myProfile.avatar_url ? `<div class="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant text-xs font-semibold"><span class="material-symbols-outlined text-sm">verified</span>Profile complete</div>` : ""}
     </div>
-    ${signed ? `<button id="btn-save-profile" class="w-full py-3 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-semibold transition-colors mb-3">Save profile</button>` : ""}
+    ${signed ? `<button id="btn-save-profile" class="w-full py-3.5 rounded-2xl bg-primary hover:bg-primary-container text-on-primary font-semibold transition-all hover:-translate-y-0.5 shadow-sm mb-3">Save profile</button>` : ""}
     ${signed
-      ? `<button id="btn-signout2" class="w-full py-3 rounded-xl bg-surface-container-low hover:bg-surface-container font-semibold transition-colors">Sign out</button>`
-      : `<button id="btn-signin2" class="w-full py-3 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-semibold transition-colors">Sign in / create account</button>`}
+      ? `<button id="btn-signout2" class="w-full py-3 rounded-2xl bg-surface-container-low hover:bg-surface-container font-semibold transition-colors">Sign out</button>`
+      : `<button id="btn-signin2" class="w-full py-3.5 rounded-2xl bg-primary hover:bg-primary-container text-on-primary font-semibold transition-all hover:-translate-y-0.5 shadow-sm">Sign in / create account</button>`}
     <div class="mt-6 pt-6 border-t border-surface-variant">
       <div class="text-[11px] font-semibold text-outline uppercase tracking-wider mb-2">Relay server</div>
       <div class="flex gap-2">
@@ -128,7 +134,7 @@ function renderAccountPage() {
         <button id="btn-acct-server" class="px-5 rounded-xl bg-surface-container-low hover:bg-surface-container font-semibold whitespace-nowrap transition-colors">Save</button>
       </div>
     </div>
-    <button id="btn-install2" class="hidden w-full mt-4 py-3 rounded-xl bg-surface-container-low hover:bg-surface-container font-semibold transition-colors">Install SWRemote app</button>
+    <button id="btn-install2" class="hidden w-full mt-4 py-3 rounded-2xl bg-surface-container-low hover:bg-surface-container font-semibold transition-colors">Install SWRemote app</button>
     <p class="text-xs text-outline mt-6 text-center">SWRemote · calm horizon edition</p>`;
   if (signed) {
     $("btn-signout2").onclick = sbLogout;
@@ -145,7 +151,7 @@ function renderAccountPage() {
     };
     $("avatar-file").onchange = (e) => {
       const f = e.target.files[0];
-      if (f) uploadAvatar(f).catch(() => toast("Could not upload picture"));
+      if (f) uploadAvatar(f).catch((err) => toast(err.message || "Could not upload picture"));
     };
   } else $("btn-signin2").onclick = enterAuth;
   $("btn-acct-server").onclick = async () => {
@@ -274,7 +280,8 @@ function enterDevices() { show("scr-app"); renderSideUser(); navTo("devices"); l
 function renderAcctRow() {
   const el = $("acct-row");
   const showAcct = sbOn();
-  const hideClaim = !showAcct || !sbSignedIn();
+  // v8.1: always show Add device when accounts are on — it prompts sign-in if needed
+  const hideClaim = !showAcct;
   $("btn-claim").classList.toggle("hidden", hideClaim);
   $("btn-claim").classList.toggle("flex", !hideClaim);
   $("manual-join").classList.toggle("hidden", !(showAcct && !sbSignedIn()));
@@ -287,7 +294,10 @@ function renderAcctRow() {
   if (si) si.onclick = (e) => { e.preventDefault(); enterAuth(); };
   renderSideUser();
 }
-$("btn-claim").onclick = () => { $("claim-input").value = ""; $("claim-modal").classList.remove("hidden"); $("claim-input").focus(); };
+$("btn-claim").onclick = () => {
+  if (!sbSignedIn()) { enterAuth(); toast("Sign in first, then add your device."); return; }
+  $("claim-input").value = ""; $("claim-modal").classList.remove("hidden"); $("claim-input").focus();
+};
 $("claim-cancel").onclick = () => $("claim-modal").classList.add("hidden");
 $("claim-ok").onclick = async () => {
   const code = $("claim-input").value.trim();
@@ -427,6 +437,14 @@ function renderDeviceList(devices) {
       const wakeBtn = card.querySelector(".btn-wake");
       if (wakeBtn) wakeBtn.onclick = () => wakeDevice(d, wakeBtn);
       card.querySelector(".btn-share").onclick = () => shareDevice(d);
+      // v8.1: logs button for own devices
+      if (d.mine && d.online) {
+        const logBtn = document.createElement("button");
+        logBtn.className = "mt-2 w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-surface-container-low hover:bg-surface-container text-on-surface text-xs font-medium transition-colors";
+        logBtn.innerHTML = '<span class="material-symbols-outlined text-base">description</span><span>View PC logs</span>';
+        logBtn.onclick = () => fetchLogs(d);
+        card.appendChild(logBtn);
+      }
       list.appendChild(card);
     });
 }
@@ -461,6 +479,27 @@ async function wakeDevice(d, btn) {
     btn.innerHTML = orig;
   }
 }
+// v8.1: fetch agent.log from the PC (same-account only)
+let logDevice = null;
+async function fetchLogs(d) {
+  logDevice = d;
+  $("log-modal").classList.remove("hidden");
+  $("log-content").textContent = "Requesting logs from PC…";
+  // join a viewer session to receive the logs
+  try {
+    await startSessionToken(d);
+    callSend({ t: "get-logs" });
+  } catch (e) {
+    $("log-content").textContent = "Failed to connect: " + e.message;
+  }
+}
+function onLogsMessage(m) {
+  if (m.t !== "logs") return false;
+  if (m.error) $("log-content").textContent = m.error;
+  else $("log-content").textContent = m.data || "(empty log)";
+  return true;
+}
+$("log-close").onclick = () => { $("log-modal").classList.add("hidden"); logDevice = null; };
 function shareDevice(d) {
   const link = location.origin + location.pathname + "?id=" + encodeURIComponent(d.id);
   const done = () => toast("Invite link copied — send it to them.");
@@ -549,6 +588,7 @@ function onWsMsg(ev) {
   else if (m.t === "cursor") moveRemoteCursor(m.x, m.y);
   else if (m.t === "file_meta") noteFileFromAgent(m);
   else if (m.t === "call-accept" || m.t === "call-end" || m.t === "call-decline" || m.t === "av-state") onCallSignal(m);
+  else if (m.t === "logs") onLogsMessage(m);
 }
 
 function handleBinary(u8) {
@@ -843,8 +883,10 @@ const isOwnerViewer = () => sbOn() && sbSignedIn();
 $("btn-call").onclick = () => {
   toggleDrawer("call-panel");
   const owner = isOwnerViewer();
-  $("call-mute-pc").classList.toggle("hidden", !owner);
-  $("call-cam-pc").classList.toggle("hidden", !owner);
+  for (const id of ["call-mute-pc", "call-cam-pc"]) {
+    $(id).classList.toggle("hidden", !owner);
+    $(id).classList.toggle("flex", owner);
+  }
 };
 function callSetStatus(t) { $("call-status").textContent = t; }
 function callSend(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
@@ -964,17 +1006,41 @@ function onCallSignal(m) {
   }
 }
 function updatePCCallUI() {
-  const el = $("call-remote");
-  if (!el) return;
-  const ph = el.querySelector(".pc-cam-placeholder");
+  const pip = $("call-pip");
+  if (!pip) return;
+  const ph = pip.querySelector(".pc-cam-placeholder");
   if (pcCamOn) { if (ph) ph.style.display = "none"; }
   else {
     $("call-remote-video").classList.add("hidden");
     if (ph) { ph.style.display = "grid"; ph.querySelector(".pc-cam-msg").textContent = "PC camera is off"; }
   }
-  $("call-mute-pc").textContent = (pcMicOn ? "🔇 Mute PC mic" : "🎤 Unmute PC mic");
-  $("call-cam-pc").textContent = (pcCamOn ? "📷 PC cam off" : "📷 PC cam on");
+  const muteBtn = $("call-mute-pc"), camBtn = $("call-cam-pc");
+  muteBtn.innerHTML = `<span>${pcMicOn ? "🔇" : "🎤"}</span><span>${pcMicOn ? "Mute PC mic" : "Unmute PC mic"}</span>`;
+  camBtn.innerHTML = `<span>📷</span><span>${pcCamOn ? "PC cam off" : "PC cam on"}</span>`;
 }
+// v8.1: make the PC PiP draggable
+(function() {
+  const pip = $("call-pip");
+  if (!pip) return;
+  let sx, sy, ox, oy, dragging = false;
+  pip.style.touchAction = "none";
+  pip.addEventListener("pointerdown", (e) => {
+    dragging = true; sx = e.clientX; sy = e.clientY;
+    const r = pip.getBoundingClientRect(), pr = pip.parentElement.getBoundingClientRect();
+    ox = r.left - pr.left; oy = r.top - pr.top;
+    pip.setPointerCapture(e.pointerId);
+  });
+  pip.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const pr = pip.parentElement.getBoundingClientRect();
+    let nx = ox + e.clientX - sx, ny = oy + e.clientY - sy;
+    nx = Math.max(0, Math.min(nx, pr.width - pip.offsetWidth));
+    ny = Math.max(0, Math.min(ny, pr.height - pip.offsetHeight));
+    pip.style.left = nx + "px"; pip.style.top = ny + "px";
+    pip.style.right = "auto"; pip.style.bottom = "auto";
+  });
+  pip.addEventListener("pointerup", () => dragging = false);
+})();
 
 /* ---------- chat ---------- */
 $("btn-chat").onclick = () => toggleDrawer("chat-panel");

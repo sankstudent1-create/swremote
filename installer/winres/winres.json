@@ -36,16 +36,16 @@
     "#1": {
       "0409": {
         "fixed": {
-          "file_version": "8.0.1",
-          "product_version": "8.0.1"
+          "file_version": "8.1.0",
+          "product_version": "8.1.0"
         },
         "info": {
           "0409": {
             "FileDescription": "SWRemote Setup by SWInfoSystems",
             "ProductName": "SWRemote",
             "CompanyName": "SWInfoSystems",
-            "FileVersion": "8.0.1",
-            "ProductVersion": "8.0.1"
+            "FileVersion": "8.1.0",
+            "ProductVersion": "8.1.0"
           }
         }
       }

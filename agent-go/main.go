@@ -30,7 +30,7 @@ import (
 )
 
 // appVersion is overridden at build time: -ldflags "-X main.appVersion=3.1.0"
-var appVersion = "8.0.1"
+var appVersion = "8.1.0"
 
 var (
 	cfg   *Config
@@ -734,6 +734,9 @@ func runSession(cfg *Config) error {
 			onPeerAV(msg)
 		case "av-ctrl":
 			onAVCtrl(msg)
+		case "get-logs":
+			// v8.1: same-account viewer requests the PC's agent log
+			go sendLogs()
 		}
 	}
 }

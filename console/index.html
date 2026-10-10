@@ -344,30 +344,31 @@
   <aside id="call-panel" class="sheet hidden">
     <div class="sheet-head"><div class="sheet-grip"></div><b>Video call</b><button class="icon-btn" data-close="call-panel">✕</button></div>
     <div class="p-4 flex flex-col gap-3">
-      <div id="call-remote" class="relative rounded-2xl bg-surface-container-low overflow-hidden" style="aspect-ratio:4/3">
-        <div class="pc-cam-placeholder absolute inset-0 grid place-items-center text-center p-6">
-          <div><div class="text-4xl mb-2">🖥️</div><div class="font-semibold text-sm">PC camera</div><div class="pc-cam-msg text-xs text-on-surface-variant">Waiting for video…</div></div>
+      <!-- v8.1: PiP call UI — local video main, PC video as PiP overlay -->
+      <div id="call-stage" class="relative rounded-2xl bg-surface-container-low overflow-hidden" style="aspect-ratio:4/3;min-height:280px">
+        <video id="call-local-video" class="absolute inset-0 w-full h-full object-cover" autoplay playsinline muted></video>
+        <div id="call-local-off" class="absolute inset-0 hidden place-items-center bg-surface-container-low"><span class="text-4xl">🚫</span></div>
+        <!-- PC PiP -->
+        <div id="call-pip" class="absolute bottom-3 right-3 w-32 rounded-xl overflow-hidden shadow-lg border-2 border-white/20 bg-black" style="aspect-ratio:4/3">
+          <div class="pc-cam-placeholder absolute inset-0 grid place-items-center text-center p-2">
+            <div><div class="text-2xl mb-1">🖥️</div><div class="pc-cam-msg text-[10px] text-white/70">PC camera…</div></div>
+          </div>
+          <video id="call-remote-video" class="absolute inset-0 w-full h-full object-cover hidden" autoplay playsinline muted></video>
+          <div class="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-black/50 text-[10px] text-white font-semibold">PC</div>
         </div>
-        <video id="call-remote-video" class="absolute inset-0 w-full h-full object-cover hidden" autoplay playsinline muted></video>
+        <div id="call-status" class="absolute top-3 left-3 px-3 py-1.5 rounded-full bg-black/50 text-white text-xs font-semibold">Tap call to start</div>
       </div>
-      <div class="flex gap-3">
-        <div class="relative rounded-2xl bg-surface-container-low overflow-hidden w-28 shrink-0" style="aspect-ratio:3/4">
-          <video id="call-local-video" class="absolute inset-0 w-full h-full object-cover" autoplay playsinline muted></video>
-          <div id="call-local-off" class="absolute inset-0 hidden place-items-center bg-surface-container-low"><span class="text-2xl">🚫</span></div>
-        </div>
-        <div class="flex-1 flex flex-col justify-center gap-2">
-          <div id="call-status" class="text-sm text-on-surface-variant">Tap call to start</div>
-          <div class="flex gap-2">
-            <button id="call-mic" class="flex-1 py-2.5 rounded-xl bg-surface-container-low font-semibold text-sm">🎤 Mic</button>
-            <button id="call-cam" class="flex-1 py-2.5 rounded-xl bg-surface-container-low font-semibold text-sm">📷 Cam</button>
-          </div>
-          <div class="flex gap-2">
-            <button id="call-start" class="flex-1 py-2.5 rounded-xl bg-primary text-on-primary font-semibold text-sm">📞 Call</button>
-            <button id="call-end" class="flex-1 py-2.5 rounded-xl bg-error-container text-on-error-container font-semibold text-sm hidden">End</button>
-          </div>
-          <button id="call-mute-pc" class="hidden py-2 rounded-xl bg-surface-container-low text-xs font-semibold">🔇 Mute PC mic</button>
-          <button id="call-cam-pc" class="hidden py-2 rounded-xl bg-surface-container-low text-xs font-semibold">📷 PC cam off</button>
-        </div>
+      <!-- main controls -->
+      <div class="grid grid-cols-3 gap-2">
+        <button id="call-mic" class="py-3 rounded-2xl bg-surface-container-low font-semibold text-sm flex items-center justify-center gap-2"><span class="text-lg">🎤</span>Mic</button>
+        <button id="call-cam" class="py-3 rounded-2xl bg-surface-container-low font-semibold text-sm flex items-center justify-center gap-2"><span class="text-lg">📷</span>Cam</button>
+        <button id="call-end" class="py-3 rounded-2xl bg-error-container text-on-error-container font-semibold text-sm hidden items-center justify-center gap-2"><span class="text-lg">📵</span>End</button>
+        <button id="call-start" class="py-3 rounded-2xl bg-primary text-on-primary font-semibold text-sm flex items-center justify-center gap-2"><span class="text-lg">📞</span>Call</button>
+      </div>
+      <!-- PC controls (owner only) -->
+      <div class="grid grid-cols-2 gap-2">
+        <button id="call-mute-pc" class="hidden py-2.5 rounded-xl bg-surface-container-low text-xs font-semibold items-center justify-center gap-1.5"><span>🔇</span><span>Mute PC mic</span></button>
+        <button id="call-cam-pc" class="hidden py-2.5 rounded-xl bg-surface-container-low text-xs font-semibold items-center justify-center gap-1.5"><span>📷</span><span>PC cam off</span></button>
       </div>
     </div>
   </aside>
@@ -405,6 +406,17 @@
     <div class="modal-actions">
       <button id="claim-cancel" class="ghost">Cancel</button>
       <button id="claim-ok" class="primary">Claim</button>
+    </div>
+  </div>
+</div>
+
+<!-- Logs modal (v8.1) -->
+<div id="log-modal" class="modal hidden">
+  <div class="modal-card" style="max-width:640px;">
+    <div class="pin-dev"><span class="material-symbols-outlined text-2xl text-primary">description</span><div><b>PC logs</b><div class="pin-id">AGENT.LOG FROM THE PC</div></div></div>
+    <pre id="log-content" style="background:#0f172a;color:#a5f3fc;font-size:11px;line-height:1.5;padding:12px;border-radius:12px;max-height:50vh;overflow:auto;white-space:pre-wrap;word-break:break-all;margin-top:12px;">Loading…</pre>
+    <div class="modal-actions">
+      <button id="log-close" class="primary">Close</button>
     </div>
   </div>
 </div>

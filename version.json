@@ -1,5 +1,5 @@
 {
-  "version": "8.0.1",
-  "notes": "v8.0.1: fix PC camera/mic capture (correct IFilterGraph2 GUID, per-thread COM init, CLSCTX_ALL).",
+  "version": "8.1.0",
+  "notes": "v8.1: compact agent window (720px, update button visible), wake-up service status, remote PC logs, Add device always visible, avatar upload error details, redesigned account page, PiP call UI with draggable PC video.",
   "url": "https://swremote-relay.onrender.com/download/agent"
 }
