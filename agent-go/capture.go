@@ -78,7 +78,7 @@ func coCreate(cls, iid windows.GUID) (uintptr, uintptr) {
 	hr, _, _ := pCoCreateInstance.Call(
 		uintptr(unsafe.Pointer(&cls)),
 		0,
-		23, // CLSCTX_ALL — v8.0.1: INPROC_SERVER alone failed on some PCs
+		1, // CLSCTX_INPROC_SERVER — v8.3.1: reverted from CLSCTX_ALL (caused REGDB_E_CLASSNOTREG)
 		uintptr(unsafe.Pointer(&iid)),
 		uintptr(unsafe.Pointer(&unk)))
 	if hr != 0 || unk == 0 {

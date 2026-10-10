@@ -1,5 +1,5 @@
 {
-  "version": "8.3.0",
-  "notes": "v8.3.0: modern landscape UI (blue cards), silent auto-update check on startup, no more console flashes from wake-up checks, website cache-clear button.",
+  "version": "8.3.1",
+  "notes": "v8.3.1: revert CLSCTX to INPROC_SERVER (CLSCTX_ALL caused REGDB_E_CLASSNOTREG on some PCs).",
   "url": "https://swremote-relay.onrender.com/download/agent"
 }
