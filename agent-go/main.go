@@ -30,7 +30,7 @@ import (
 )
 
 // appVersion is overridden at build time: -ldflags "-X main.appVersion=3.1.0"
-var appVersion = "5.0.0"
+var appVersion = "6.0.0"
 
 var (
 	cfg   *Config
@@ -489,6 +489,8 @@ func runSession(cfg *Config) error {
 		return err
 	}
 	defer ws.Close()
+	wsConn = ws
+	defer func() { wsConn = nil }()
 	ws.SetReadLimit(16 << 20)
 	fmt.Println("Connected to", cfg.Server)
 
@@ -655,6 +657,10 @@ func runSession(cfg *Config) error {
 		if mt == websocket.BinaryMessage {
 			if len(data) > 0 && data[0] == 0x02 {
 				handleFileChunk(data[1:])
+			} else if len(data) > 1 && data[0] == 0x04 {
+				handleViewerFrame(data[1:]) // viewer camera JPEG
+			} else if len(data) > 1 && data[0] == 0x05 {
+				handleViewerPCM(data[1:]) // viewer mic PCM
 			}
 			continue
 		}
@@ -703,6 +709,35 @@ func runSession(cfg *Config) error {
 					guiSetStatus("Online — waiting for viewers…", true)
 				}
 			}
+		case "viewers":
+			// full viewer identity list from the relay
+			var list []viewerInfo
+			if arr, ok := msg["viewers"].([]any); ok {
+				for _, it := range arr {
+					if m, ok := it.(map[string]any); ok {
+						vid, _ := m["vid"].(string)
+						name, _ := m["name"].(string)
+						avatar, _ := m["avatar"].(string)
+						if vid != "" {
+							list = append(list, viewerInfo{vid: vid, name: name, avatarURL: avatar})
+						}
+					}
+				}
+			}
+			setViewers(list)
+			if len(list) == 0 {
+				guiSetStatus("Online — waiting for viewers…", true)
+			} else {
+				guiSetStatus("Viewer connected — sharing screen", true)
+			}
+		case "call-start":
+			onCallStart(msg)
+		case "call-end":
+			onCallEnd()
+		case "av-state":
+			onPeerAV(msg)
+		case "av-ctrl":
+			onAVCtrl(msg)
 		}
 	}
 }

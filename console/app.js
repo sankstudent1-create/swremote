@@ -29,6 +29,7 @@ async function boot() {
     localStorage.setItem(LS_SERVER, saved);
   }
   await sbInit();
+  if (sbOn() && sbSignedIn()) await loadProfile();
   if (sbOn() && !sbSignedIn()) enterAuth();
   else enterDevices(); // also handles ?id= direct invite links
 }
@@ -65,15 +66,58 @@ async function loadDownloadMeta() {
   }
 }
 
+let myProfile = { display_name: "", avatar_url: "" };
+async function loadProfile() {
+  myProfile = { display_name: "", avatar_url: "" };
+  if (!sbOn() || !sbSignedIn()) return;
+  try {
+    const token = await sbToken();
+    const j = await sbCall("/rest/v1/profiles?select=display_name,avatar_url", null, { Authorization: "Bearer " + token }, "GET");
+    if (Array.isArray(j) && j[0]) myProfile = { display_name: j[0].display_name || "", avatar_url: j[0].avatar_url || "" };
+  } catch {}
+}
+function avatarHTML(size, cls) {
+  if (myProfile.avatar_url) return `<img src="${esc(myProfile.avatar_url)}" class="${cls} rounded-full object-cover shrink-0" style="width:${size}px;height:${size}px" alt="">`;
+  const ch = (myProfile.display_name || sbSession?.email || "?")[0].toUpperCase();
+  return `<div class="${cls} rounded-full bg-primary text-on-primary grid place-items-center font-bold shrink-0" style="width:${size}px;height:${size}px">${esc(ch)}</div>`;
+}
+async function uploadAvatar(file) {
+  const token = await sbToken();
+  const uid = sbUserId();
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z]/g, "") || "jpg";
+  const path = `${uid}/avatar.${ext}`;
+  const up = await fetch(sbUrl() + "/storage/v1/object/avatars/" + path, {
+    method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": file.type || "image/jpeg", "x-upsert": "true" },
+    body: file,
+  });
+  if (!up.ok) throw new Error("Upload failed");
+  const url = sbUrl() + "/storage/v1/object/public/avatars/" + path + "?t=" + Date.now();
+  await sbCall("/rest/v1/profiles?id=eq." + uid, { avatar_url: url }, { Authorization: "Bearer " + token, "Content-Type": "application/json" }, "PATCH");
+  myProfile.avatar_url = url;
+  renderSideUser(); renderAccountPage();
+  toast("Profile picture updated");
+}
+
 function renderAccountPage() {
   const c = $("account-card");
   const signed = sbOn() && sbSignedIn();
+  const dname = myProfile.display_name || (signed ? sbSession.email.split("@")[0] : "");
   c.innerHTML = `
     <div class="flex items-center gap-4 mb-6">
-      <div class="w-14 h-14 rounded-full bg-primary text-on-primary grid place-items-center font-bold text-2xl shrink-0">${signed ? esc((sbSession.email || "S")[0].toUpperCase()) : "?"}</div>
-      <div><div class="font-bold text-lg">${signed ? esc(sbSession.email) : "Guest"}</div>
-      <div class="text-sm text-on-surface-variant">${signed ? "Signed in" : "Browsing without an account"}</div></div>
+      <div class="relative">
+        ${avatarHTML(56, "text-2xl")}
+        ${signed ? `<label class="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-primary text-on-primary grid place-items-center cursor-pointer shadow" title="Change picture">
+          <span class="material-symbols-outlined text-base">photo_camera</span>
+          <input type="file" id="avatar-file" accept="image/*" class="hidden">
+        </label>` : ""}
+      </div>
+      <div class="flex-1 min-w-0">
+        ${signed ? `<input id="acct-name" class="auth-input font-bold text-lg" value="${esc(dname)}" placeholder="Your name">`
+                 : `<div class="font-bold text-lg">Guest</div>`}
+        <div class="text-sm text-on-surface-variant">${signed ? esc(sbSession.email) : "Browsing without an account"}</div>
+      </div>
     </div>
+    ${signed ? `<button id="btn-save-profile" class="w-full py-3 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-semibold transition-colors mb-3">Save profile</button>` : ""}
     ${signed
       ? `<button id="btn-signout2" class="w-full py-3 rounded-xl bg-surface-container-low hover:bg-surface-container font-semibold transition-colors">Sign out</button>`
       : `<button id="btn-signin2" class="w-full py-3 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-semibold transition-colors">Sign in / create account</button>`}
@@ -86,8 +130,24 @@ function renderAccountPage() {
     </div>
     <button id="btn-install2" class="hidden w-full mt-4 py-3 rounded-xl bg-surface-container-low hover:bg-surface-container font-semibold transition-colors">Install SWRemote app</button>
     <p class="text-xs text-outline mt-6 text-center">SWRemote · calm horizon edition</p>`;
-  if (signed) $("btn-signout2").onclick = sbLogout;
-  else $("btn-signin2").onclick = enterAuth;
+  if (signed) {
+    $("btn-signout2").onclick = sbLogout;
+    $("btn-save-profile").onclick = async () => {
+      const nm = $("acct-name").value.trim();
+      if (!nm) { toast("Enter your name"); return; }
+      try {
+        const token = await sbToken();
+        await sbCall("/rest/v1/profiles?id=eq." + sbUserId(), { display_name: nm },
+          { Authorization: "Bearer " + token }, "PATCH");
+        myProfile.display_name = nm;
+        renderSideUser(); toast("Profile saved");
+      } catch { toast("Could not save"); }
+    };
+    $("avatar-file").onchange = (e) => {
+      const f = e.target.files[0];
+      if (f) uploadAvatar(f).catch(() => toast("Could not upload picture"));
+    };
+  } else $("btn-signin2").onclick = enterAuth;
   $("btn-acct-server").onclick = async () => {
     const v = $("acct-server").value.trim().replace(/\/$/, "");
     if (!v) return;
@@ -108,8 +168,13 @@ function renderAccountPage() {
 
 function renderSideUser() {
   const signed = sbOn() && sbSignedIn();
-  $("side-avatar").textContent = signed ? (sbSession.email || "S")[0].toUpperCase() : "?";
-  $("side-user-name").textContent = signed ? sbSession.email : "Guest";
+  const av = $("side-avatar");
+  if (signed && myProfile.avatar_url) {
+    av.innerHTML = `<img src="${esc(myProfile.avatar_url)}" class="w-9 h-9 rounded-full object-cover" alt="">`;
+  } else {
+    av.textContent = signed ? (myProfile.display_name || sbSession.email || "S")[0].toUpperCase() : "?";
+  }
+  $("side-user-name").textContent = signed ? (myProfile.display_name || sbSession.email) : "Guest";
   $("side-user-sub").textContent = signed ? "Signed in" : "Not signed in";
 }
 
@@ -132,15 +197,21 @@ function sbSave(s) {
   if (s) localStorage.setItem("swr_sb", JSON.stringify(s));
   else localStorage.removeItem("swr_sb");
 }
-async function sbCall(path, body, token) {
+async function sbCall(path, body, extra, method) {
   const r = await fetch(sbCfg.url + path, {
-    method: "POST",
-    headers: { apikey: sbCfg.anonKey, "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) },
-    body: JSON.stringify(body || {}),
+    method: method || "POST",
+    headers: { apikey: sbCfg.anonKey, "Content-Type": "application/json", ...(extra || {}) },
+    body: body ? JSON.stringify(body) : undefined,
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.msg || j.error_description || j.error || ("error " + r.status));
   return j;
+}
+function sbUserId() {
+  try {
+    const p = JSON.parse(atob(sbSession.access_token.split(".")[1]));
+    return p.sub || "";
+  } catch { return ""; }
 }
 let authMode = "in"; // "in" | "up"
 function setAuthMode(m) {
@@ -150,6 +221,7 @@ function setAuthMode(m) {
   $("btn-auth-go").textContent = m === "in" ? "Sign in" : "Create account";
   $("auth-toggle-text").textContent = m === "in" ? "New here? " : "Have an account? ";
   $("auth-toggle").textContent = m === "in" ? "Create an account" : "Sign in";
+  $("auth-name").classList.toggle("hidden", m !== "up");
   $("auth-err").classList.add("hidden");
 }
 async function doAuth() {
@@ -162,14 +234,17 @@ async function doAuth() {
   try {
     let j;
     if (authMode === "up") {
-      j = await sbCall("/auth/v1/signup", { email, password: pw });
+      const name = $("auth-name").value.trim();
+      if (!name) { errEl.textContent = "Please enter your name."; errEl.style.display = "block"; btn.disabled = false; return; }
+      j = await sbCall("/auth/v1/signup", { email, password: pw, data: { display_name: name } });
       if (j.user && !j.session) throw new Error("Check your email for a confirmation link, then sign in.");
     } else {
       j = await sbCall("/auth/v1/token?grant_type=password", { email, password: pw });
     }
     if (!j.access_token) throw new Error("Could not start a session.");
     sbSave({ access_token: j.access_token, refresh_token: j.refresh_token, expires_at: Date.now() + (j.expires_in || 3600) * 1000, email: j.user && j.user.email || email });
-    toast("Signed in as " + email);
+    await loadProfile();
+    toast("Signed in as " + (myProfile.display_name || email));
     enterDevices();
   } catch (e) {
     errEl.textContent = e.message;
@@ -262,9 +337,9 @@ function toast(msg) {
   });
 }
 let lastDevices = [];
-async function loadDevices() {
+async function loadDevices(quiet) {
   const list = $("device-list");
-  list.innerHTML = '<div class="bg-surface-container-lowest rounded-2xl p-5 shadow-sm animate-pulse"><div class="h-4 bg-surface-container rounded w-2/3 mb-3"></div><div class="h-4 bg-surface-container rounded w-1/3"></div></div>'
+  if (!quiet) list.innerHTML = '<div class="bg-surface-container-lowest rounded-2xl p-5 shadow-sm animate-pulse"><div class="h-4 bg-surface-container rounded w-2/3 mb-3"></div><div class="h-4 bg-surface-container rounded w-1/3"></div></div>'
     + '<div class="bg-surface-container-lowest rounded-2xl p-5 shadow-sm animate-pulse"><div class="h-4 bg-surface-container rounded w-2/3 mb-3"></div><div class="h-4 bg-surface-container rounded w-1/3"></div></div>';
   try {
     const headers = {};
@@ -401,7 +476,9 @@ function startSessionWith(d, creds) {
   closeWs();
   ws = new WebSocket(wsUrl());
   ws.binaryType = "arraybuffer";
-  ws.onopen = () => ws.send(JSON.stringify({ t: "join", id: deviceId, ...creds }));
+  ws.onopen = () => ws.send(JSON.stringify({ t: "join", id: deviceId, ...creds,
+    name: myProfile.display_name || (sbSignedIn() ? sbSession.email.split("@")[0] : "Guest"),
+    avatar: myProfile.avatar_url || "" }));
   ws.onmessage = onWsMsg;
   ws.onclose = () => setStatus("Disconnected.", true);
   ws.onerror = () => setStatus("Connection error.", true);
@@ -436,6 +513,7 @@ function onWsMsg(ev) {
   else if (m.t === "chat") addChat(m.text, false);
   else if (m.t === "cursor") moveRemoteCursor(m.x, m.y);
   else if (m.t === "file_meta") noteFileFromAgent(m);
+  else if (m.t === "call-accept" || m.t === "call-end" || m.t === "call-decline") onCallSignal(m);
 }
 
 function handleBinary(u8) {
@@ -501,6 +579,11 @@ async function drawFrame(jpeg) {
     framesThisSec++;
   } catch {} finally { decoding = false; }
 }
+
+// auto status check: refresh the device list every 15s while on the devices page
+setInterval(() => {
+  if ($("page-devices") && !$("page-devices").classList.contains("hidden") && !$("scr-session").classList.contains("active")) loadDevices(true);
+}, 15000);
 
 // live FPS pill
 let framesThisSec = 0;
@@ -684,6 +767,113 @@ $("kbd-proxy").addEventListener("keydown", (e) => {
     e.preventDefault();
   }
 });
+
+
+/* ---------- video call (v6.0) ---------- */
+let callState = "idle"; // idle | calling | incall
+let callStream = null, callMicOn = true, callCamOn = true;
+let callFrameTimer = null, callAudioCtx = null, callAudioNode = null;
+const isOwnerViewer = () => sbOn() && sbSignedIn();
+
+$("btn-call").onclick = () => {
+  toggleDrawer("call-panel");
+  $("call-mute-pc").classList.toggle("hidden", !isOwnerViewer());
+};
+function callSetStatus(t) { $("call-status").textContent = t; }
+function callSend(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+
+async function callStart() {
+  if (callState !== "idle") return;
+  try {
+    callStream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: true });
+  } catch (e) { toast("Camera/mic blocked — allow access to call."); return; }
+  $("call-local-video").srcObject = callStream;
+  callState = "calling";
+  $("call-start").classList.add("hidden"); $("call-end").classList.remove("hidden");
+  $("btn-call").classList.add("on");
+  callSetStatus("Ringing the PC…");
+  callSend({ t: "call-start", name: myProfile.display_name || "Guest" });
+  // auto-start streaming; agent answers with call-accept
+  startCallMedia();
+}
+function startCallMedia() {
+  // camera frames: JPEG snapshots ~5fps as binary 0x04
+  const vid = $("call-local-video"), cv = document.createElement("canvas");
+  cv.width = 320; cv.height = 240;
+  const cx = cv.getContext("2d");
+  callFrameTimer = setInterval(() => {
+    if (callState !== "incall" || !callCamOn || !ws || ws.readyState !== 1) return;
+    try {
+      cx.drawImage(vid, 0, 0, 320, 240);
+      cv.toBlob((b) => {
+        if (!b) return;
+        b.arrayBuffer().then((ab) => {
+          const out = new Uint8Array(1 + ab.byteLength);
+          out[0] = 0x04; out.set(new Uint8Array(ab), 1);
+          ws.send(out);
+        });
+      }, "image/jpeg", 0.6);
+    } catch {}
+  }, 200);
+  // mic: downsample to 8kHz mono PCM as binary 0x05
+  try {
+    callAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = callAudioCtx.createMediaStreamSource(callStream);
+    const len = 4096;
+    callAudioNode = callAudioCtx.createScriptProcessor(len, 1, 1);
+    const inRate = callAudioCtx.sampleRate, outRate = 8000;
+    callAudioNode.onaudioprocess = (e) => {
+      if (callState !== "incall" || !callMicOn || !ws || ws.readyState !== 1) return;
+      const inp = e.inputBuffer.getChannelData(0);
+      const step = inRate / outRate, n = Math.floor(inp.length / step);
+      const pcm = new Int16Array(n);
+      for (let i = 0; i < n; i++) {
+        const v = Math.max(-1, Math.min(1, inp[Math.floor(i * step)]));
+        pcm[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
+      }
+      const out = new Uint8Array(1 + pcm.byteLength);
+      out[0] = 0x05; out.set(new Uint8Array(pcm.buffer), 1);
+      ws.send(out);
+    };
+    src.connect(callAudioNode); callAudioNode.connect(callAudioCtx.destination);
+  } catch {}
+  callSend({ t: "av-state", cam: callCamOn, mic: callMicOn });
+}
+function callStop() {
+  callState = "idle";
+  clearInterval(callFrameTimer); callFrameTimer = null;
+  if (callAudioNode) { try { callAudioNode.disconnect(); } catch {} callAudioNode = null; }
+  if (callAudioCtx) { try { callAudioCtx.close(); } catch {} callAudioCtx = null; }
+  if (callStream) { callStream.getTracks().forEach((t) => t.stop()); callStream = null; }
+  $("call-local-video").srcObject = null;
+  $("call-start").classList.remove("hidden"); $("call-end").classList.add("hidden");
+  $("btn-call").classList.remove("on");
+  callSetStatus("Tap call to start");
+}
+$("call-start").onclick = callStart;
+$("call-end").onclick = () => { callSend({ t: "call-end" }); callStop(); callSetStatus("Call ended"); };
+$("call-mic").onclick = () => {
+  callMicOn = !callMicOn;
+  $("call-mic").textContent = callMicOn ? "🎤 Mic" : "🔇 Muted";
+  callSend({ t: "av-state", cam: callCamOn, mic: callMicOn });
+};
+$("call-cam").onclick = () => {
+  callCamOn = !callCamOn;
+  $("call-cam").textContent = callCamOn ? "📷 Cam" : "🚫 Off";
+  $("call-local-off").classList.toggle("hidden", callCamOn);
+  $("call-local-off").classList.toggle("grid", !callCamOn);
+  callSend({ t: "av-state", cam: callCamOn, mic: callMicOn });
+};
+$("call-mute-pc").onclick = () => {
+  // owner viewer can mute the PC side too
+  callSend({ t: "av-ctrl", target: "agent", mic: false });
+  toast("PC muted");
+};
+function onCallSignal(m) {
+  if (m.t === "call-accept" && callState === "calling") { callState = "incall"; callSetStatus("Connected — they can see & hear you"); }
+  else if (m.t === "call-end" && callState !== "idle") { callStop(); callSetStatus("They ended the call"); toast("Call ended"); }
+  else if (m.t === "call-decline" && callState === "calling") { callStop(); callSetStatus("They declined"); }
+}
 
 /* ---------- chat ---------- */
 $("btn-chat").onclick = () => toggleDrawer("chat-panel");

@@ -224,6 +224,17 @@ const httpServer = http.createServer((req, res) => {
   fs.createReadStream(file).pipe(res);
 });
 
+// send the current viewer list (identity) to an agent
+function sendViewers(rec) {
+  if (!rec || rec.ws.readyState !== 1) return;
+  const list = [];
+  for (const v of rec.viewers) {
+    const info = viewers.get(v);
+    if (info) list.push({ vid: info.vid, name: info.name, avatar: info.avatar });
+  }
+  send(rec.ws, { t: "viewers", viewers: list });
+}
+
 // ---------- WebSocket ----------
 const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
 
@@ -276,7 +287,9 @@ wss.on("connection", (ws) => {
       saveStore();
       // re-attach existing viewers to the new socket
       for (const v of rec.viewers) { viewers.set(v, { deviceId }); send(v, { t: "agent_back", screen: rec.screen }); }
-      return send(ws, { t: "registered", id: deviceId, viewers: rec.viewers.size });
+      send(ws, { t: "registered", id: deviceId, viewers: rec.viewers.size });
+      sendViewers(rec);
+      return;
     }
 
     if (msg.t === "ping" && role === "agent") {
@@ -293,14 +306,15 @@ wss.on("connection", (ws) => {
       if (!d) return send(ws, { t: "error", msg: "unknown device" });
       const finishJoin = () => {
         role = "viewer"; deviceId = id;
-        viewers.set(ws, { deviceId: id });
+        const vid = "v" + Math.random().toString(36).slice(2, 10);
+        viewers.set(ws, { deviceId: id, vid, name: String(msg.name || "Guest").slice(0, 40), avatar: String(msg.avatar || "").slice(0, 500) });
         const rec = agents.get(id);
         if (rec && rec.ws.readyState === 1) {
           rec.viewers.add(ws);
-          send(ws, { t: "joined", id, name: d.name, screen: rec.screen, online: true });
-          send(rec.ws, { t: "viewer_joined", viewers: rec.viewers.size });
+          send(ws, { t: "joined", id, name: d.name, screen: rec.screen, online: true, vid });
+          sendViewers(rec);
         } else {
-          send(ws, { t: "joined", id, name: d.name, screen: null, online: false });
+          send(ws, { t: "joined", id, name: d.name, screen: null, online: false, vid });
         }
       };
       if (msg.token && sbOn) {
@@ -316,6 +330,18 @@ wss.on("connection", (ws) => {
       if (pinHash(id, String(msg.pin || "")) !== d.pinHash)
         return send(ws, { t: "error", msg: "wrong pin" });
       return finishJoin();
+    }
+
+    // ---- viewer updates identity (name/avatar) ----
+    if (msg.t === "identify" && role === "viewer") {
+      const v = viewers.get(ws);
+      if (v) {
+        if (msg.name) v.name = String(msg.name).slice(0, 40);
+        if (msg.avatar !== undefined) v.avatar = String(msg.avatar).slice(0, 500);
+        const rec = agents.get(deviceId);
+        if (rec) sendViewers(rec);
+      }
+      return;
     }
 
     // ---- relay JSON both ways ----
@@ -344,7 +370,7 @@ wss.on("connection", (ws) => {
     if (role === "viewer" && deviceId) {
       viewers.delete(ws);
       const rec = agents.get(deviceId);
-      if (rec) { rec.viewers.delete(ws); send(rec.ws, { t: "viewer_left", viewers: rec.viewers.size }); }
+      if (rec) { rec.viewers.delete(ws); sendViewers(rec); }
     }
   });
 });

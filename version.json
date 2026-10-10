@@ -1,5 +1,5 @@
 {
-  "version": "5.0.0",
-  "notes": "Violet rebrand from AI prototypes (DM Sans + Outfit, #7c3aed): new logo/icon/art everywhere, website theme + fonts, agent violet header. Agent auto-starts with Windows by default from now on (opt-out via checkbox).",
+  "version": "6.0.0",
+  "notes": "v6.0: auto status check (15s) + refresh; profiles with name/avatar (signup name, avatar upload, Supabase schema+bucket); agent shows WHO is viewing (avatar+name panel, bigger window); video calls \u2014 viewer streams camera+mic to PC (PC shows video window + plays audio), call controls, owner-viewer can mute PC side. PC camera/mic capture = Phase 4.",
   "url": "https://swremote-relay.onrender.com/download/agent"
 }

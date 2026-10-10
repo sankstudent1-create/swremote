@@ -6,6 +6,7 @@
 create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text,
+  avatar_url text,
   created_at timestamptz default now()
 );
 
@@ -62,9 +63,10 @@ language plpgsql
 security definer set search_path = public
 as $$
 begin
-  insert into public.profiles (id)
-  values (new.id)
-  on conflict (id) do nothing;
+  insert into public.profiles (id, display_name)
+  values (new.id, nullif(new.raw_user_meta_data->>'display_name',''))
+  on conflict (id) do update set
+    display_name = coalesce(excluded.display_name, public.profiles.display_name);
   return new;
 end;
 $$;
@@ -78,3 +80,25 @@ create trigger on_auth_user_created
 insert into public.profiles (id)
 select id from auth.users
 on conflict (id) do nothing;
+
+-- v6.0: avatar_url column for existing projects + avatars storage bucket
+alter table public.profiles add column if not exists avatar_url text;
+
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
+on conflict (id) do nothing;
+
+drop policy if exists "public read avatars" on storage.objects;
+create policy "public read avatars" on storage.objects
+  for select using (bucket_id = 'avatars');
+
+drop policy if exists "users manage own avatar" on storage.objects;
+create policy "users manage own avatar" on storage.objects
+  for all using (bucket_id = 'avatars' and auth.uid()::text = (storage.foldername(name))[1])
+  with check (bucket_id = 'avatars' and auth.uid()::text = (storage.foldername(name))[1]);
+
+-- profiles: users can read all (for viewer identity), update own
+drop policy if exists "profiles readable" on public.profiles;
+create policy "profiles readable" on public.profiles for select using (true);
+drop policy if exists "profiles self-update" on public.profiles;
+create policy "profiles self-update" on public.profiles for update using (auth.uid() = id);

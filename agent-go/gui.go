@@ -28,6 +28,7 @@ var (
 
 	pRegisterClassExW = u32.NewProc("RegisterClassExW")
 	pCreateWindowExW   = u32.NewProc("CreateWindowExW")
+	pRegisterClassW   = u32.NewProc("RegisterClassW")
 	pDefWindowProcW    = u32.NewProc("DefWindowProcW")
 	pShowWindow        = u32.NewProc("ShowWindow")
 	pUpdateWindow      = u32.NewProc("UpdateWindow")
@@ -52,6 +53,10 @@ var (
 	pCreatePen        = g32.NewProc("CreatePen")
 	pRoundRect        = g32.NewProc("RoundRect")
 	pEllipse          = g32.NewProc("Ellipse")
+	pGetDC            = u32.NewProc("GetDC")
+	pReleaseDC        = u32.NewProc("ReleaseDC")
+	pCreateDIBitmap   = g32.NewProc("CreateDIBitmap")
+	pDeleteObject     = g32.NewProc("DeleteObject")
 	pCreateCompatibleDC = g32.NewProc("CreateCompatibleDC")
 	pDeleteDC         = g32.NewProc("DeleteDC")
 	pBitBlt           = g32.NewProc("BitBlt")
@@ -132,6 +137,7 @@ const (
 	ctlClaimLbl = 118
 	ctlClaimVal = 119
 	ctlCopyClaim = 120
+	ctlViewLbl  = 121
 )
 
 type wndClassExW struct {
@@ -373,7 +379,7 @@ func drawPill(hdc uintptr) {
 	pSelectObject.Call(hdc, oldF)
 }
 
-var grayLabels = map[int]bool{ctlIDLabel: true, ctlPINLabel: true, ctlLinkLbl: true, ctlClaimLbl: true, ctlVer: true, ctlMeta: true}
+var grayLabels = map[int]bool{ctlIDLabel: true, ctlPINLabel: true, ctlLinkLbl: true, ctlClaimLbl: true, ctlViewLbl: true, ctlVer: true, ctlMeta: true}
 
 func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 	switch uint32(msg) {
@@ -410,7 +416,7 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		var ps paintStruct
 		hdc, _, _ := pBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 		// white background
-		var rcFull = [4]int32{0, 0, 430, 706}
+		var rcFull = [4]int32{0, 0, 430, 860}
 		pFillRect.Call(hdc, uintptr(unsafe.Pointer(&rcFull)), gWhiteBr)
 		// section cards (v4 design)
 		oldPen, _, _ := pSelectObject.Call(hdc, gCardPen)
@@ -419,8 +425,10 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		pRoundRect.Call(hdc, 12, 240, 418, 356, 28, 28)  // PIN & status
 		pRoundRect.Call(hdc, 12, 368, 418, 440, 28, 28)  // invite link
 		pRoundRect.Call(hdc, 12, 452, 418, 524, 28, 28)  // link this device
+		pRoundRect.Call(hdc, 12, 536, 418, 680, 28, 28)  // viewers
 		pSelectObject.Call(hdc, oldPen)
 		pSelectObject.Call(hdc, oldBr)
+		drawViewers(hdc)
 		// header gradient
 		v := [2]triVertex{
 			{0, 0, 0x7c * 257, 0x3a * 257, 0xed * 257, 0},
@@ -682,7 +690,7 @@ func runGUI() {
 		uintptr(unsafe.Pointer(clsName)),
 		uintptr(unsafe.Pointer(u16("SWRemote"))),
 		WS_OVERLAPPEDWINDOW&^0x00040000, // no maximize box
-		200, 120, 446, 745,
+		200, 120, 446, 900,
 		0, 0, 0, 0)
 	if hwnd == 0 {
 		return
@@ -705,13 +713,14 @@ func runGUI() {
 	mkCtl("STATIC", "LINK THIS DEVICE", 0, 28, 464, 220, 20, ctlClaimLbl, gFonts["lbl"])
 	mkCtl("STATIC", cfg.ClaimCode, SS_LEFT, 28, 486, 200, 34, ctlClaimVal, gFonts["pin"])
 	mkCtl("BUTTON", "Copy code", BS_PUSHBUTTON, 292, 484, 100, 32, ctlCopyClaim, gFonts["norm"])
-	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON, 28, 534, 374, 38, ctlUpdate, gFonts["norm"])
-	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 28, 582, 374, 22, ctlAutoRun, gFonts["norm"])
-	mkCtl("msctls_progress32", "", 0, 28, 610, 374, 16, ctlProg, 0)
+	mkCtl("STATIC", "VIEWERS", 0, 28, 548, 200, 20, ctlViewLbl, gFonts["lbl"])
+	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON, 28, 694, 374, 38, ctlUpdate, gFonts["norm"])
+	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 28, 742, 374, 22, ctlAutoRun, gFonts["norm"])
+	mkCtl("msctls_progress32", "", 0, 28, 770, 374, 16, ctlProg, 0)
 	pSendMessageW.Call(gCtl[ctlProg], PBM_SETRANGE32, 0, 100)
 	pShowWindow.Call(gCtl[ctlProg], 0)
-	mkCtl("BUTTON", "Quit", BS_PUSHBUTTON, 28, 634, 374, 36, ctlQuit, gFonts["norm"])
-	mkCtl("STATIC", "v"+appVersion+"   •   swremote-relay.onrender.com", SS_LEFT, 28, 678, 374, 16, ctlVer, gFonts["small"])
+	mkCtl("BUTTON", "Quit", BS_PUSHBUTTON, 28, 794, 374, 36, ctlQuit, gFonts["norm"])
+	mkCtl("STATIC", "v"+appVersion+"   •   swremote-relay.onrender.com", SS_LEFT, 28, 838, 374, 16, ctlVer, gFonts["small"])
 
 	// gray labels are colored via WM_CTLCOLORSTATIC (grayLabels set)
 	if getAutoRun() {

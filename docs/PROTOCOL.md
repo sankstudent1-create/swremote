@@ -17,8 +17,13 @@ First message after connect decides the role:
 | Message | Meaning |
 |---|---|
 | `{"t":"registered"}` | ID accepted, you are online |
-| `{"t":"viewer_joined","viewers":n}` | a viewer connected → agent sends a keyframe |
-| `{"t":"viewer_left","viewers":n}` | a viewer disconnected |
+| `{"t":"viewer_joined","viewers":n}` | a viewer connected → agent sends a keyframe (legacy; see `viewers` below) |
+| `{"t":"viewer_left","viewers":n}` | a viewer disconnected (legacy) |
+| `{"t":"viewers","viewers":[{"vid","name","avatar"}]}` | **v6.0**: full viewer identity list — agent shows avatar+name |
+| `{"t":"call-start","name":"…"}` | viewer requests a video call → PC shows Accept/Decline |
+| `{"t":"call-end"}` | either side ends the call |
+| `{"t":"av-state","cam":bool,"mic":bool}` | peer muted/unmuted their camera/mic |
+| `{"t":"av-ctrl","target":"agent","mic":bool}` | logged-in viewer mutes/unmutes PC-side playback |
 | `{"t":"input","k":"move","x":0.5,"y":0.25}` | mouse move (fractions of screen) |
 | `{"t":"input","k":"down"/"up","b":"left"/"right"/"middle"}` | mouse button |
 | `{"t":"input","k":"scroll","dy":120,"dx":0}` | wheel |
@@ -44,15 +49,22 @@ First message after connect decides the role:
 Agent↔viewer JSON is forwarded **verbatim** by the relay, so new `t` types need
 no relay changes.
 
-## 4. Binary frames (agent → viewers)
+## 4. Binary frames
 
-First byte = kind:
+First byte = kind. Agent→viewer:
 
 | Kind | Layout | Meaning |
 |---|---|---|
 | `0x01` | `01` + JPEG | **keyframe**: full screen |
 | `0x02` | `02` + chunk | file transfer chunk (see below) |
 | `0x03` | `03` + uint16BE tileIdx + JPEG | **tile**: one 128×128 region changed |
+
+Viewer→agent (v6.0 video call):
+
+| Kind | Layout | Meaning |
+|---|---|---|
+| `0x04` | `04` + JPEG | viewer camera frame (~5fps) → PC video window |
+| `0x05` | `05` + PCM | viewer mic: 8kHz mono 16-bit PCM → PC speakers via waveOut |
 
 Tile index: `idx = row * cols + col`, `cols = ceil(width/128)`. The viewer learns
 `width/height` from the last keyframe (or the `screen` field in `joined`).
