@@ -1,5 +1,5 @@
 {
-  "version": "8.2.1",
-  "notes": "v8.2.1: install wake-up button downloads the service exe from the relay when not bundled.",
+  "version": "8.2.2",
+  "notes": "v8.2.2: install wake-up retries with UAC elevation when not running as admin.",
   "url": "https://swremote-relay.onrender.com/download/agent"
 }

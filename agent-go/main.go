@@ -30,7 +30,7 @@ import (
 )
 
 // appVersion is overridden at build time: -ldflags "-X main.appVersion=3.1.0"
-var appVersion = "8.2.1"
+var appVersion = "8.2.2"
 
 var (
 	cfg   *Config
