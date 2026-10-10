@@ -157,8 +157,8 @@ func micCaptureLoop(stop <-chan struct{}) {
 	comInit() // COM is per-thread; this goroutine needs its own init
 	enum, hr := coCreate(clsidMMDeviceEnumerator, iidIMMDeviceEnumerator)
 	if hr != 0 {
-		log("mic: no device enumerator (%x)", hr)
-		reportPCAV("mic", false)
+		log("mic: no device enumerator (%x) — trying waveIn fallback", hr)
+		waveInCaptureLoop(stop) // v8.3.2: legacy API, no COM needed
 		return
 	}
 	defer comRelease(enum)
@@ -338,6 +338,12 @@ func camCaptureLoop(stop <-chan struct{}) {
 		}
 	}()
 	comInit() // COM is per-thread; this goroutine needs its own init
+	// v8.3.2: check if DirectShow is installed (Windows N editions lack it)
+	if _, err := windows.LoadLibrary("quartz.dll"); err != nil {
+		log("cam: DirectShow not installed — Windows N edition needs the Media Feature Pack")
+		reportPCAV("cam", false)
+		return
+	}
 	graph, hr := coCreate(clsidFilterGraph, iidIFilterGraph2)
 	if hr != 0 {
 		log("cam: no filter graph (%x)", hr)

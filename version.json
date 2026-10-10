@@ -1,5 +1,5 @@
 {
-  "version": "8.3.1",
-  "notes": "v8.3.1: revert CLSCTX to INPROC_SERVER (CLSCTX_ALL caused REGDB_E_CLASSNOTREG on some PCs).",
+  "version": "8.3.2",
+  "notes": "v8.3.2: mic falls back to waveIn when WASAPI fails; camera checks for DirectShow/Media Feature Pack.",
   "url": "https://swremote-relay.onrender.com/download/agent"
 }
