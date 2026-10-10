@@ -800,6 +800,7 @@ $("kbd-proxy").addEventListener("keydown", (e) => {
 
 /* ---------- video call (v6.0) ---------- */
 let callState = "idle"; // idle | calling | incall
+let callRingTimer = null;
 let callStream = null, callMicOn = true, callCamOn = true;
 let callFrameTimer = null, callAudioCtx = null, callAudioNode = null;
 const isOwnerViewer = () => sbOn() && sbSignedIn();
@@ -824,6 +825,15 @@ async function callStart() {
   $("btn-call").classList.add("on");
   callSetStatus("Ringing the PC…");
   callSend({ t: "call-start", name: myProfile.display_name || "Guest" });
+  // if the PC doesn't answer in 20s, tell the user why (old agent? offline?)
+  clearTimeout(callRingTimer);
+  callRingTimer = setTimeout(() => {
+    if (callState === "calling") {
+      callStop();
+      callSetStatus("PC didn't answer");
+      toast("No answer — is the v7.0+ agent running on the PC?");
+    }
+  }, 20000);
   // auto-start streaming; agent answers with call-accept
   startCallMedia();
 }
@@ -872,6 +882,7 @@ function startCallMedia() {
 }
 function callStop() {
   callState = "idle";
+  clearTimeout(callRingTimer);
   clearInterval(callFrameTimer); callFrameTimer = null;
   if (callAudioNode) { try { callAudioNode.disconnect(); } catch {} callAudioNode = null; }
   if (callAudioCtx) { try { callAudioCtx.close(); } catch {} callAudioCtx = null; }
