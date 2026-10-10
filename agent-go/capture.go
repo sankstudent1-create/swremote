@@ -78,13 +78,20 @@ func coCreate(cls, iid windows.GUID) (uintptr, uintptr) {
 	hr, _, _ := pCoCreateInstance.Call(
 		uintptr(unsafe.Pointer(&cls)),
 		0,
-		1, // CLSCTX_INPROC_SERVER
+		23, // CLSCTX_ALL — v8.0.1: INPROC_SERVER alone failed on some PCs
 		uintptr(unsafe.Pointer(&iid)),
 		uintptr(unsafe.Pointer(&unk)))
 	if hr != 0 || unk == 0 {
 		return 0, hr
 	}
 	return unk, 0
+}
+
+// comInit initializes COM on the calling thread. Each capture goroutine
+// must call this — COM apartment state is per-thread, and Go goroutines
+// migrate across OS threads.
+func comInit() {
+	pCoInitializeEx.Call(0, 0) // COINIT_MULTITHREADED
 }
 
 func init() {
@@ -147,6 +154,7 @@ func micCaptureLoop(stop <-chan struct{}) {
 			log("mic capture panic: %v", r)
 		}
 	}()
+	comInit() // COM is per-thread; this goroutine needs its own init
 	enum, hr := coCreate(clsidMMDeviceEnumerator, iidIMMDeviceEnumerator)
 	if hr != 0 {
 		log("mic: no device enumerator (%x)", hr)
@@ -319,7 +327,7 @@ func reportPCAV(which string, ok bool) {
 // ---------- camera capture (DirectShow + SampleGrabber) ----------
 
 var (
-	iidIFilterGraph2         = guid(0xC6F28A61, 0xC44D, 0x434E, [8]byte{0xAC, 0x4F, 0x86, 0xDB, 0x05, 0xD7, 0x21, 0xA})
+	iidIFilterGraph2         = guid(0x36B73882, 0xC2C8, 0x11CF, [8]byte{0x8B, 0x46, 0x00, 0x80, 0x5F, 0x6C, 0xEF, 0x60})
 	iidICaptureGraphBuilder2 = guid(0x93E5A4E0, 0x2D50, 0x11D1, [8]byte{0xB3, 0x43, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x98})
 )
 
@@ -329,6 +337,7 @@ func camCaptureLoop(stop <-chan struct{}) {
 			log("cam capture panic: %v", r)
 		}
 	}()
+	comInit() // COM is per-thread; this goroutine needs its own init
 	graph, hr := coCreate(clsidFilterGraph, iidIFilterGraph2)
 	if hr != 0 {
 		log("cam: no filter graph (%x)", hr)
