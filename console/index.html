@@ -190,7 +190,17 @@
         </nav>
       </div>
     </div>
-    <div class="p-4">
+    <div class="p-4 flex flex-col gap-3">
+      <div class="p-4 rounded-2xl bg-gradient-to-br from-primary-fixed to-tertiary-fixed relative overflow-hidden">
+        <div class="absolute -right-4 -bottom-4 w-24 h-24 rounded-full bg-white/20 blur-xl"></div>
+        <div class="relative">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="material-symbols-outlined text-lg text-primary">bolt</span>
+            <span class="text-xs font-bold text-primary uppercase tracking-wider">Relay status</span>
+          </div>
+          <div class="text-sm font-semibold text-on-surface" id="side-relay-text">Connecting…</div>
+        </div>
+      </div>
       <div class="p-3 rounded-xl bg-surface-container-low flex items-center gap-3">
         <div class="w-9 h-9 rounded-full bg-primary text-on-primary grid place-items-center font-bold shrink-0" id="side-avatar">?</div>
         <div class="flex flex-col min-w-0 flex-1">
@@ -238,6 +248,7 @@
               <button id="btn-claim" class="hidden items-center gap-2 px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-semibold text-sm shadow-sm transition-all hover:-translate-y-0.5">
                 <span class="material-symbols-outlined text-lg">add_circle</span><span>Add device</span>
               </button>
+              <button id="btn-refresh-m" class="lg:hidden w-10 h-10 rounded-xl flex items-center justify-center text-on-surface-variant bg-surface-container-lowest shadow-sm" title="Refresh"><span class="material-symbols-outlined text-xl">refresh</span></button>
             </div>
 
             <div id="device-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5"></div>

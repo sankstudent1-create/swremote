@@ -140,6 +140,7 @@ const (
 	ctlViewLbl  = 121
 	ctlWakeLbl  = 122
 	ctlWakeVal  = 123
+	ctlWakeInstall = 124
 )
 
 type wndClassExW struct {
@@ -391,6 +392,12 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 	case WM_CLOSE:
 		pPostQuitMessage.Call(0)
 		return 0
+	case 0x0005: // WM_SIZE — v8.2: reposition controls on horizontal resize
+		w := int32(lp & 0xFFFF)
+		if w > 446 {
+			layoutControls(w)
+		}
+		return 0
 	case WM_CTLCOLORSTATIC:
 		hdc := wp
 		ctl := lp
@@ -565,6 +572,14 @@ func onClick(id int) {
 			return // an update check is already in progress
 		}
 		go runUpdateFlow()
+	case ctlWakeInstall:
+		// v8.2: install the wake-up service on demand
+		go func() {
+			msg := installWakeService()
+			if gCtl[ctlWakeVal] != 0 {
+				pSetWindowTextW.Call(gCtl[ctlWakeVal], uintptr(unsafe.Pointer(u16(msg))))
+			}
+		}()
 	case ctlQuit:
 		pPostMessageW.Call(gHWND, WM_CLOSE, 0, 0)
 	case ctlAutoRun:
@@ -723,7 +738,8 @@ func runGUI() {
 	mkCtl("STATIC", "VIEWERS", 0, 28, 390, 200, 18, ctlViewLbl, gFonts["lbl"])
 	// viewers drawn at y=410+ (max 2 rows, 40px each = ends at 490)
 	mkCtl("STATIC", "WAKE-UP", 0, 28, 500, 200, 18, ctlWakeLbl, gFonts["lbl"])
-	mkCtl("STATIC", "Checking…", SS_LEFT, 28, 518, 364, 18, ctlWakeVal, gFonts["norm"])
+	mkCtl("STATIC", "Checking…", SS_LEFT, 28, 518, 280, 18, ctlWakeVal, gFonts["norm"])
+	mkCtl("BUTTON", "Install wake-up", BS_PUSHBUTTON, 312, 516, 110, 26, ctlWakeInstall, gFonts["norm"])
 	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON, 28, 548, 374, 34, ctlUpdate, gFonts["norm"])
 	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 28, 590, 374, 20, ctlAutoRun, gFonts["norm"])
 	mkCtl("msctls_progress32", "", 0, 28, 614, 374, 14, ctlProg, 0)

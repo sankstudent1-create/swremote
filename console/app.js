@@ -189,6 +189,7 @@ let sbCfg = { url: null, anonKey: null };
 let sbSession = null;
 try { sbSession = JSON.parse(localStorage.getItem("swr_sb") || "null"); } catch {}
 const sbOn = () => !!(sbCfg.url && sbCfg.anonKey);
+const sbUrl = () => sbCfg.url;
 const sbSignedIn = () => !!(sbSession && sbSession.access_token);
 
 async function sbInit() {
@@ -359,6 +360,8 @@ async function loadDevices(quiet) {
     const j = await r.json();
     lastDevices = j.devices || [];
     renderDeviceList(lastDevices);
+    const srt = $("side-relay-text");
+    if (srt) srt.textContent = "● Connected";
     // direct link support: ?id=123456789 opens the PIN box for that device (fresh loads only)
     const want = new URLSearchParams(location.search).get("id");
     if (want) {
@@ -380,16 +383,24 @@ function renderDeviceList(devices) {
   $("dev-count").textContent = devices.length
     ? `${online} of ${devices.length} online` : "";
   if (!devices.length) {
+    const emptyArt = `<div class="w-24 h-24 rounded-3xl bg-gradient-to-br from-primary-fixed to-tertiary-fixed grid place-items-center mb-4 shadow-lg">
+           <span class="material-symbols-outlined text-5xl text-primary">computer</span>
+         </div>`;
     list.innerHTML = sbOn() && sbSignedIn()
-      ? `<div class="col-span-full bg-surface-container-lowest rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
-           <span class="material-symbols-outlined text-5xl text-primary mb-3">desktop_access_disabled</span>
-           <div class="font-display font-bold text-xl mb-1">No devices yet.</div>
-           <div class="text-sm text-on-surface-variant">Tap <b>Add device</b> and enter the code from the PC app.</div>
+      ? `<div class="col-span-full bg-surface-container-lowest rounded-3xl p-10 shadow-sm flex flex-col items-center text-center">
+           ${emptyArt}
+           <div class="font-display font-bold text-2xl mb-2">No devices yet.</div>
+           <div class="text-sm text-on-surface-variant max-w-sm mb-5">Your PCs will appear here once you link them. It takes less than a minute.</div>
+           <div class="flex flex-col gap-2 text-left w-full max-w-sm">
+             <div class="flex items-center gap-3 p-3 rounded-xl bg-surface-container-low"><span class="w-8 h-8 rounded-full bg-primary text-on-primary grid place-items-center font-bold shrink-0">1</span><span class="text-sm">Run <b>SWRemote-Setup.exe</b> on your Windows PC</span></div>
+             <div class="flex items-center gap-3 p-3 rounded-xl bg-surface-container-low"><span class="w-8 h-8 rounded-full bg-primary text-on-primary grid place-items-center font-bold shrink-0">2</span><span class="text-sm">Tap <b>Add device</b> above and enter the link code</span></div>
+             <div class="flex items-center gap-3 p-3 rounded-xl bg-surface-container-low"><span class="w-8 h-8 rounded-full bg-primary text-on-primary grid place-items-center font-bold shrink-0">3</span><span class="text-sm">Click your PC to take control from anywhere</span></div>
+           </div>
          </div>`
-      : `<div class="col-span-full bg-surface-container-lowest rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
-           <span class="material-symbols-outlined text-5xl text-primary mb-3">desktop_access_disabled</span>
-           <div class="font-display font-bold text-xl mb-1">No devices yet.</div>
-           <div class="text-sm text-on-surface-variant">Open <b>SWRemote-Agent.exe</b> on a Windows PC first.</div>
+      : `<div class="col-span-full bg-surface-container-lowest rounded-3xl p-10 shadow-sm flex flex-col items-center text-center">
+           ${emptyArt}
+           <div class="font-display font-bold text-2xl mb-2">No devices yet.</div>
+           <div class="text-sm text-on-surface-variant max-w-sm">Open <b>SWRemote-Agent.exe</b> on a Windows PC first, then sign in to link it.</div>
          </div>`;
     return;
   }
@@ -512,6 +523,8 @@ $("btn-refresh").onclick = () => {
   b.classList.remove("spin"); void b.offsetWidth; b.classList.add("spin");
   loadDevices();
 };
+const brm = $("btn-refresh-m");
+if (brm) brm.onclick = () => { brm.classList.remove("spin"); void brm.offsetWidth; brm.classList.add("spin"); loadDevices(); };
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
 /* ---------- PIN modal ---------- */

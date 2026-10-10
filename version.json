@@ -1,5 +1,5 @@
 {
-  "version": "8.1.0",
-  "notes": "v8.1: compact agent window (720px, update button visible), wake-up service status, remote PC logs, Add device always visible, avatar upload error details, redesigned account page, PiP call UI with draggable PC video.",
+  "version": "8.2.0",
+  "notes": "v8.2: fix sbUrl avatar bug, add /download/setup endpoint, agent resizable window + install wake-up service button, mobile refresh button, sidebar relay card, illustrated empty state.",
   "url": "https://swremote-relay.onrender.com/download/agent"
 }
