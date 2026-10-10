@@ -1,5 +1,5 @@
 {
-  "version": "8.2.2",
-  "notes": "v8.2.2: install wake-up retries with UAC elevation when not running as admin.",
+  "version": "8.3.0",
+  "notes": "v8.3.0: modern landscape UI (blue cards), silent auto-update check on startup, no more console flashes from wake-up checks, website cache-clear button.",
   "url": "https://swremote-relay.onrender.com/download/agent"
 }

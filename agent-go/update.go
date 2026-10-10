@@ -208,6 +208,26 @@ func doUninstall() {
 	os.Exit(0)
 }
 
+// autoUpdateCheck runs silently in the background: shortly after startup
+// (and every 6h after), it checks for a newer version and prompts once.
+func autoUpdateCheck() {
+	time.Sleep(60 * time.Second)
+	prompted := ""
+	for {
+		if info, err := fetchVersion(); err == nil {
+			if isNewer(appVersion, info.Version) && prompted != info.Version {
+				prompted = info.Version
+				guiSetUpdateBtn("\u2b06 Update available (v"+info.Version+")", true)
+				if updateRunning.Swap(true) {
+					continue
+				}
+				go runUpdateFlow()
+			}
+		}
+		time.Sleep(6 * time.Hour)
+	}
+}
+
 func runUpdateFlow() {
 	defer updateRunning.Store(false)
 	guiSetUpdateBtn("Checking…", false)

@@ -478,6 +478,7 @@ func main() {
 		}
 	})
 
+	go autoUpdateCheck() // silent update check: 60s after start, then every 6h
 	runGUI() // blocks until the window is closed
 	log("window closed, exiting")
 }

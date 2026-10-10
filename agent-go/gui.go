@@ -219,6 +219,8 @@ var (
 	gState   = &guiState{statusText: "Starting…", progress: -1, updBtnText: "Check for Updates", updBtnOn: true, started: time.Now()}
 	gCtl     = map[int]uintptr{}
 	gWhiteBr uintptr
+	gBgBr    uintptr
+	gBlueBr  uintptr
 	gCardBr  uintptr
 	gCardPen uintptr
 	gGreenBr uintptr
@@ -259,7 +261,7 @@ func drawLogo(hdc uintptr) {
 		return
 	}
 	oldBmp, _, _ := pSelectObject.Call(memDC, gLogoBmp)
-	pBitBlt.Call(hdc, 20, 20, 64, 64, memDC, 0, 0, 0x00CC0020 /*SRCCOPY*/)
+	pBitBlt.Call(hdc, 24, 18, 64, 64, memDC, 0, 0, 0x00CC0020 /*SRCCOPY*/)
 	pSelectObject.Call(memDC, oldBmp)
 	pDeleteDC.Call(memDC)
 }
@@ -357,10 +359,10 @@ func drawPill(hdc uintptr) {
 	if text == "" {
 		text, ok = "Starting…", false
 	}
-	// white pill
+	// white pill (header right)
 	oldPen, _, _ := pSelectObject.Call(hdc, gCardPen)
 	oldBr, _, _ := pSelectObject.Call(hdc, gWhiteBr)
-	pRoundRect.Call(hdc, 288, 32, 418, 64, 32, 32)
+	pRoundRect.Call(hdc, 620, 30, 836, 64, 34, 34)
 	pSelectObject.Call(hdc, oldPen)
 	pSelectObject.Call(hdc, oldBr)
 	// dot
@@ -370,19 +372,23 @@ func drawPill(hdc uintptr) {
 	}
 	oldPen2, _, _ := pSelectObject.Call(hdc, gCardPen)
 	oldBr2, _, _ := pSelectObject.Call(hdc, dotBr)
-	pEllipse.Call(hdc, 302, 42, 314, 54)
+	pEllipse.Call(hdc, 636, 41, 648, 53)
 	pSelectObject.Call(hdc, oldPen2)
 	pSelectObject.Call(hdc, oldBr2)
 	// label
 	pSetBkMode.Call(hdc, TRANSPARENT)
-	pSetTextColor.Call(hdc, colorRef(0x6d, 0x28, 0xd9))
+	pSetTextColor.Call(hdc, colorRef(0x1e, 0x29, 0x3b))
 	oldF, _, _ := pSelectObject.Call(hdc, gFonts["norm"])
-	var rc = [4]int32{320, 36, 412, 60}
+	var rc = [4]int32{656, 34, 828, 60}
 	pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16(text))), 0xFFFFFFFF /*cchText=-1, null-terminated*/, uintptr(unsafe.Pointer(&rc)), 0)
 	pSelectObject.Call(hdc, oldF)
 }
 
 var grayLabels = map[int]bool{ctlIDLabel: true, ctlPINLabel: true, ctlLinkLbl: true, ctlClaimLbl: true, ctlViewLbl: true, ctlWakeLbl: true, ctlVer: true, ctlMeta: true}
+
+var primaryBtns = map[int]bool{ctlCopyID: true, ctlNewPIN: true, ctlCopy: true, ctlCopyClaim: true, ctlWakeInstall: true, ctlUpdate: true}
+
+const WM_CTLCOLORBTN = 309
 
 func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 	switch uint32(msg) {
@@ -392,12 +398,25 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 	case WM_CLOSE:
 		pPostQuitMessage.Call(0)
 		return 0
-	case 0x0005: // WM_SIZE — v8.2: reposition controls on horizontal resize
-		w := int32(lp & 0xFFFF)
-		if w > 446 {
-			layoutControls(w)
+	case WM_CTLCOLORBTN:
+		hdc := wp
+		ctl := lp
+		for id, h := range gCtl {
+			if h == ctl {
+				if id == ctlQuit {
+					pSetTextColor.Call(hdc, colorRef(0x33, 0x44, 0x5c))
+					pSetBkMode.Call(hdc, TRANSPARENT)
+					return gWhiteBr
+				}
+				if primaryBtns[id] {
+					pSetTextColor.Call(hdc, colorRef(255, 255, 255))
+					pSetBkMode.Call(hdc, TRANSPARENT)
+					return gBlueBr
+				}
+			}
 		}
-		return 0
+		pSetBkMode.Call(hdc, TRANSPARENT)
+		return gWhiteBr
 	case WM_CTLCOLORSTATIC:
 		hdc := wp
 		ctl := lp
@@ -424,24 +443,25 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 	case WM_PAINT:
 		var ps paintStruct
 		hdc, _, _ := pBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
-		// white background
-		var rcFull = [4]int32{0, 0, 430, 860}
-		pFillRect.Call(hdc, uintptr(unsafe.Pointer(&rcFull)), gWhiteBr)
-		// section cards (v4 design)
+		// light slate background
+		var rcFull = [4]int32{0, 0, 860, 560}
+		pFillRect.Call(hdc, uintptr(unsafe.Pointer(&rcFull)), gBgBr)
+		// section cards — landscape: 3 left, 3 right
 		oldPen, _, _ := pSelectObject.Call(hdc, gCardPen)
 		oldBr, _, _ := pSelectObject.Call(hdc, gCardBr)
-		pRoundRect.Call(hdc, 12, 120, 418, 228, 28, 28)  // your ID
-		pRoundRect.Call(hdc, 12, 240, 418, 356, 28, 28)  // PIN & status
-		pRoundRect.Call(hdc, 12, 368, 418, 440, 28, 28)  // invite link
-		pRoundRect.Call(hdc, 12, 452, 418, 524, 28, 28)  // link this device
-		pRoundRect.Call(hdc, 12, 536, 418, 680, 28, 28)  // viewers
+		pRoundRect.Call(hdc, 20, 116, 418, 232, 24, 24)   // your ID
+		pRoundRect.Call(hdc, 20, 244, 418, 360, 24, 24)   // PIN & status
+		pRoundRect.Call(hdc, 20, 372, 418, 480, 24, 24)    // link this device
+		pRoundRect.Call(hdc, 434, 116, 840, 232, 24, 24)   // invite link
+		pRoundRect.Call(hdc, 434, 244, 840, 360, 24, 24)  // viewers
+		pRoundRect.Call(hdc, 434, 372, 840, 480, 24, 24)   // wake-up
 		pSelectObject.Call(hdc, oldPen)
 		pSelectObject.Call(hdc, oldBr)
 		drawViewers(hdc)
-		// header gradient
+		// header gradient (calm blue)
 		v := [2]triVertex{
-			{0, 0, 0x7c * 257, 0x3a * 257, 0xed * 257, 0},
-			{430, 104, 0xa7 * 257, 0x8b * 257, 0xfa * 257, 0},
+			{0, 0, 0x1d * 257, 0x4e * 257, 0xd8 * 257, 0},
+			{860, 100, 0x3b * 257, 0x82 * 257, 0xf6 * 257, 0},
 		}
 		gr := gradientRect{0, 1}
 		pGradientFill.Call(hdc, uintptr(unsafe.Pointer(&v[0])), 2, uintptr(unsafe.Pointer(&gr)), 1, 0)
@@ -449,14 +469,14 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		pSetBkMode.Call(hdc, TRANSPARENT)
 		pSetTextColor.Call(hdc, colorRef(255, 255, 255))
 		old, _, _ := pSelectObject.Call(hdc, gFonts["title"])
-		var rc = [4]int32{100, 14, 420, 60}
+		var rc = [4]int32{100, 12, 420, 52}
 		pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16("SWRemote"))), 8, uintptr(unsafe.Pointer(&rc)), 0)
 		pSelectObject.Call(hdc, gFonts["sub"])
-		rc = [4]int32{100, 58, 280, 84}
+		rc = [4]int32{102, 52, 320, 76}
 		pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16("by SWInfoSystems"))), 16, uintptr(unsafe.Pointer(&rc)), 0)
 		// version badge (v8.0: always visible in the header)
 		pSelectObject.Call(hdc, gFonts["small"])
-		rc = [4]int32{100, 80, 280, 100}
+		rc = [4]int32{102, 74, 320, 94}
 		pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16("v"+appVersion))), 0xFFFFFFFF, uintptr(unsafe.Pointer(&rc)), 0)
 		pSelectObject.Call(hdc, old)
 		drawLogo(hdc)
@@ -680,8 +700,10 @@ func runGUI() {
 	pInitCommon.Call(uintptr(unsafe.Pointer(&icc)))
 
 	gWhiteBr, _, _ = pCreateSolidBrush.Call(colorRef(255, 255, 255))
-	gCardBr, _, _ = pCreateSolidBrush.Call(colorRef(0xf7, 0xfa, 0xfd))
-	gCardPen, _, _ = pCreatePen.Call(0 /*PS_SOLID*/, 1, colorRef(0xe3, 0xea, 0xf3))
+	gBgBr, _, _ = pCreateSolidBrush.Call(colorRef(0xed, 0xf1, 0xf7))
+	gBlueBr, _, _ = pCreateSolidBrush.Call(colorRef(0x25, 0x63, 0xeb))
+	gCardBr, _, _ = pCreateSolidBrush.Call(colorRef(255, 255, 255))
+	gCardPen, _, _ = pCreatePen.Call(0 /*PS_SOLID*/, 1, colorRef(0xe2, 0xe8, 0xf0))
 	gGreenBr, _, _ = pCreateSolidBrush.Call(colorRef(0x22, 0xa3, 0x5f))
 	gGrayBr, _, _ = pCreateSolidBrush.Call(colorRef(0x9a, 0xa7, 0xbb))
 	gFonts["title"] = mkFont("Segoe UI", 24, true)
@@ -710,8 +732,8 @@ func runGUI() {
 	hwnd, _, _ := pCreateWindowExW.Call(0,
 		uintptr(unsafe.Pointer(clsName)),
 		uintptr(unsafe.Pointer(u16("SWRemote"))),
-		WS_OVERLAPPEDWINDOW&^0x00040000, // no maximize box
-		200, 80, 446, 720,
+		WS_OVERLAPPEDWINDOW&^0x00040000&^0x00080000, // no maximize box, no resize border
+		200, 80, 876, 600,
 		0, 0, 0, 0)
 	if hwnd == 0 {
 		return
@@ -721,32 +743,34 @@ func runGUI() {
 	// controls (client coords) — v4 layout: status pill header + 4 cards
 	// v8.1: compact layout (720px) — everything visible on 768px screens,
 	// no overlap between viewers and the update button.
-	mkCtl("STATIC", "YOUR ID", 0, 28, 118, 220, 18, ctlIDLabel, gFonts["lbl"])
-	mkCtl("STATIC", cfg.DeviceID, SS_LEFT, 28, 136, 240, 36, ctlIDValue, gFonts["id"])
-	mkCtl("BUTTON", "Copy ID", BS_PUSHBUTTON, 296, 138, 96, 32, ctlCopyID, gFonts["norm"])
-	mkCtl("STATIC", "PIN", 0, 28, 184, 200, 18, ctlPINLabel, gFonts["lbl"])
-	mkCtl("STATIC", cfg.PIN, SS_LEFT, 28, 202, 200, 30, ctlPINValue, gFonts["pin"])
-	mkCtl("BUTTON", "New PIN", BS_PUSHBUTTON, 292, 200, 100, 30, ctlNewPIN, gFonts["norm"])
-	mkCtl("STATIC", "●", SS_LEFT, 28, 242, 20, 18, ctlDot, gFonts["norm"])
-	mkCtl("STATIC", "Starting…", SS_LEFT, 54, 242, 340, 18, ctlStatus, gFonts["norm"])
-	mkCtl("STATIC", "INVITE LINK", 0, 28, 272, 200, 18, ctlLinkLbl, gFonts["lbl"])
-	mkCtl("EDIT", inviteLink(), WS_BORDER|ES_READONLY|ES_AUTOHSCROLL, 28, 290, 258, 28, ctlLinkEdit, gFonts["norm"])
-	mkCtl("BUTTON", "Copy", BS_PUSHBUTTON, 296, 288, 96, 32, ctlCopy, gFonts["norm"])
-	mkCtl("STATIC", "LINK THIS DEVICE", 0, 28, 330, 220, 18, ctlClaimLbl, gFonts["lbl"])
-	mkCtl("STATIC", cfg.ClaimCode, SS_LEFT, 28, 348, 200, 30, ctlClaimVal, gFonts["pin"])
-	mkCtl("BUTTON", "Copy code", BS_PUSHBUTTON, 292, 346, 100, 30, ctlCopyClaim, gFonts["norm"])
-	mkCtl("STATIC", "VIEWERS", 0, 28, 390, 200, 18, ctlViewLbl, gFonts["lbl"])
-	// viewers drawn at y=410+ (max 2 rows, 40px each = ends at 490)
-	mkCtl("STATIC", "WAKE-UP", 0, 28, 500, 200, 18, ctlWakeLbl, gFonts["lbl"])
-	mkCtl("STATIC", "Checking…", SS_LEFT, 28, 518, 280, 18, ctlWakeVal, gFonts["norm"])
-	mkCtl("BUTTON", "Install wake-up", BS_PUSHBUTTON, 312, 516, 110, 26, ctlWakeInstall, gFonts["norm"])
-	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON, 28, 548, 374, 34, ctlUpdate, gFonts["norm"])
-	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 28, 590, 374, 20, ctlAutoRun, gFonts["norm"])
-	mkCtl("msctls_progress32", "", 0, 28, 614, 374, 14, ctlProg, 0)
+	// left column
+	mkCtl("STATIC", "YOUR ID", 0, 40, 128, 220, 18, ctlIDLabel, gFonts["lbl"])
+	mkCtl("STATIC", cfg.DeviceID, SS_LEFT, 40, 148, 250, 38, ctlIDValue, gFonts["id"])
+	mkCtl("BUTTON", "Copy ID", BS_PUSHBUTTON|BS_FLAT, 304, 150, 96, 34, ctlCopyID, gFonts["norm"])
+	mkCtl("STATIC", "PIN", 0, 40, 256, 200, 18, ctlPINLabel, gFonts["lbl"])
+	mkCtl("STATIC", cfg.PIN, SS_LEFT, 40, 276, 180, 30, ctlPINValue, gFonts["pin"])
+	mkCtl("BUTTON", "New PIN", BS_PUSHBUTTON|BS_FLAT, 304, 276, 96, 30, ctlNewPIN, gFonts["norm"])
+	mkCtl("STATIC", "●", SS_LEFT, 40, 320, 18, 18, ctlDot, gFonts["norm"])
+	mkCtl("STATIC", "Starting…", SS_LEFT, 62, 320, 330, 18, ctlStatus, gFonts["norm"])
+	mkCtl("STATIC", "LINK THIS DEVICE", 0, 40, 384, 220, 18, ctlClaimLbl, gFonts["lbl"])
+	mkCtl("STATIC", cfg.ClaimCode, SS_LEFT, 40, 404, 180, 30, ctlClaimVal, gFonts["pin"])
+	mkCtl("BUTTON", "Copy code", BS_PUSHBUTTON|BS_FLAT, 304, 404, 96, 30, ctlCopyClaim, gFonts["norm"])
+	// right column
+	mkCtl("STATIC", "INVITE LINK", 0, 454, 128, 220, 18, ctlLinkLbl, gFonts["lbl"])
+	mkCtl("EDIT", inviteLink(), WS_BORDER|ES_READONLY|ES_AUTOHSCROLL, 454, 150, 268, 30, ctlLinkEdit, gFonts["norm"])
+	mkCtl("BUTTON", "Copy", BS_PUSHBUTTON|BS_FLAT, 732, 148, 88, 34, ctlCopy, gFonts["norm"])
+	mkCtl("STATIC", "VIEWERS", 0, 454, 256, 200, 18, ctlViewLbl, gFonts["lbl"])
+	mkCtl("STATIC", "", SS_LEFT, 454, 278, 366, 18, ctlMeta, gFonts["small"])
+	mkCtl("STATIC", "WAKE-UP", 0, 454, 384, 200, 18, ctlWakeLbl, gFonts["lbl"])
+	mkCtl("STATIC", "Checking…", SS_LEFT, 454, 404, 366, 18, ctlWakeVal, gFonts["norm"])
+	mkCtl("BUTTON", "Install wake-up", BS_PUSHBUTTON|BS_FLAT, 454, 428, 150, 30, ctlWakeInstall, gFonts["norm"])
+	// bottom bar
+	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON|BS_FLAT, 20, 498, 220, 38, ctlUpdate, gFonts["norm"])
+	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 258, 506, 300, 24, ctlAutoRun, gFonts["norm"])
+	mkCtl("msctls_progress32", "", 0, 572, 510, 130, 14, ctlProg, 0)
 	pSendMessageW.Call(gCtl[ctlProg], PBM_SETRANGE32, 0, 100)
 	pShowWindow.Call(gCtl[ctlProg], 0)
-	mkCtl("BUTTON", "Quit", BS_PUSHBUTTON, 28, 634, 374, 32, ctlQuit, gFonts["norm"])
-	mkCtl("STATIC", "v"+appVersion+"   •   swremote-relay.onrender.com", SS_LEFT, 28, 674, 374, 16, ctlVer, gFonts["small"])
+	mkCtl("BUTTON", "Quit", BS_PUSHBUTTON|BS_FLAT, 720, 498, 120, 38, ctlQuit, gFonts["norm"])
 
 	// gray labels are colored via WM_CTLCOLORSTATIC (grayLabels set)
 	if getAutoRun() {

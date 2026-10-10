@@ -1164,6 +1164,22 @@ $("q-quality").onchange = pushQuality;
 $("q-scale").onchange = pushQuality;
 $("btn-lock").onclick = () => { if (ws && confirm("Lock the remote PC now?")) ws.send(JSON.stringify({ t: "lock" })); };
 
+/* ---------- clear cache & reload latest ---------- */
+$("btn-clear-cache").onclick = async () => {
+  const btn = $("btn-clear-cache");
+  btn.disabled = true; btn.textContent = "Clearing…";
+  try {
+    if ("serviceWorker" in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+    if ("caches" in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch (e) {}
+  location.reload(true);
+};
 /* ---------- PWA ---------- */
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
 let deferredInstall = null;

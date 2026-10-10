@@ -171,12 +171,12 @@ func drawViewers(hdc uintptr) {
 
 	if len(list) == 0 {
 		pSetTextColor.Call(hdc, colorRef(0x84, 0x94, 0xab))
-		var rc = [4]int32{28, 412, 400, 440}
+		var rc = [4]int32{454, 304, 830, 330}
 		pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16("No one is watching right now."))), 0xFFFFFFFF, uintptr(unsafe.Pointer(&rc)), 0)
 		pSelectObject.Call(hdc, oldF)
 		return
 	}
-	y := int32(408)
+	y := int32(300)
 	for i, v := range list {
 		if i >= 2 {
 			break
@@ -185,15 +185,15 @@ func drawViewers(hdc uintptr) {
 		if v.avatarBMP != 0 {
 			memDC, _, _ := pCreateCompatibleDC.Call(hdc)
 			oldBmp, _, _ := pSelectObject.Call(memDC, v.avatarBMP)
-			pBitBlt.Call(hdc, 28, uintptr(y), 36, 36, memDC, 0, 0, 0x00CC0020)
+			pBitBlt.Call(hdc, 454, uintptr(y), 36, 36, memDC, 0, 0, 0x00CC0020)
 			pSelectObject.Call(memDC, oldBmp)
 			pDeleteDC.Call(memDC)
 		} else {
 			// violet initial tile
-			tileBr, _, _ := pCreateSolidBrush.Call(colorRef(0x7c, 0x3a, 0xed))
+			tileBr, _, _ := pCreateSolidBrush.Call(colorRef(0x25, 0x63, 0xeb))
 			oldBr, _, _ := pSelectObject.Call(hdc, tileBr)
 			oldPen, _, _ := pSelectObject.Call(hdc, gCardPen)
-			pRoundRect.Call(hdc, 28, uintptr(y), 64, uintptr(y+36), 18, 18)
+			pRoundRect.Call(hdc, 454, uintptr(y), 490, uintptr(y+36), 18, 18)
 			pSelectObject.Call(hdc, oldBr)
 			pSelectObject.Call(hdc, oldPen)
 			pDeleteObject.Call(tileBr)
@@ -203,7 +203,7 @@ func drawViewers(hdc uintptr) {
 				r := []rune(v.name)
 				ch = string(r[0])
 			}
-			var irc = [4]int32{28, y, 64, y + 36}
+			var irc = [4]int32{454, y, 490, y + 36}
 			pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16(ch))), 0xFFFFFFFF, uintptr(unsafe.Pointer(&irc)), 0x0001 /*DT_CENTER*/)
 		}
 		// name
@@ -212,7 +212,7 @@ func drawViewers(hdc uintptr) {
 		if name == "" {
 			name = "Guest"
 		}
-		var nrc = [4]int32{74, y + 6, 400, y + 30}
+		var nrc = [4]int32{500, y + 6, 830, y + 30}
 		pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16(name))), 0xFFFFFFFF, uintptr(unsafe.Pointer(&nrc)), 0)
 		y += 44
 	}

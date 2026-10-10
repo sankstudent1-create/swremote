@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 	"unsafe"
 	"golang.org/x/sys/windows"
@@ -49,9 +50,16 @@ func runElevated(name string, args ...string) error {
 	return nil
 }
 
+// scHidden runs an `sc` command with no console window flash.
+func scHidden(args ...string) *exec.Cmd {
+	cmd := exec.Command("sc", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	return cmd
+}
+
 func wakeStatus() (string, bool) {
 	// returns (statusText, installed)
-	out, err := exec.Command("sc", "query", "SWRemoteService").Output()
+	out, err := scHidden("query", "SWRemoteService").Output()
 	if err != nil {
 		return "Not installed — remote wake-up unavailable", false
 	}
@@ -79,7 +87,7 @@ func installWakeService() string {
 	}
 	binPath := `"` + svcExe + `"`
 	// Try normal install first
-	out, err := exec.Command("sc", "create", "SWRemoteService", "binPath=", binPath, "start=", "auto", "DisplayName=", "SWRemote Service").CombinedOutput()
+	out, err := scHidden("create", "SWRemoteService", "binPath=", binPath, "start=", "auto", "DisplayName=", "SWRemote Service").CombinedOutput()
 	if err != nil {
 		errStr := strings.TrimSpace(string(out))
 		// Access denied / OpenSCManager failed = need admin. Retry elevated via UAC.
@@ -93,7 +101,7 @@ func installWakeService() string {
 		}
 		return "Install failed: " + errStr
 	}
-	if out, err := exec.Command("sc", "start", "SWRemoteService").CombinedOutput(); err != nil {
+	if out, err := scHidden("start", "SWRemoteService").CombinedOutput(); err != nil {
 		return "Installed but could not start: " + strings.TrimSpace(string(out))
 	}
 	return "✓ Wake-up service installed and running"
