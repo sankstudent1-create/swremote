@@ -277,12 +277,12 @@ $("auth-skip").onclick = (e) => { e.preventDefault(); enterDevices(); };
 $("auth-pass").addEventListener("keydown", (e) => { if (e.key === "Enter") doAuth(); });
 
 function enterAuth() { setAuthMode("in"); show("scr-auth"); }
-function enterDevices() { show("scr-app"); renderSideUser(); navTo("devices"); loadDevices(); }
+function enterDevices() { show("scr-app"); renderSideUser(); navTo("devices"); renderAcctRow(); loadDevices(); }
 function renderAcctRow() {
   const el = $("acct-row");
   const showAcct = sbOn();
-  // v8.1: always show Add device when accounts are on — it prompts sign-in if needed
-  const hideClaim = !showAcct;
+  // always show Add device — it prompts sign-in if needed (btn-claim onclick handles it)
+  const hideClaim = false;
   $("btn-claim").classList.toggle("hidden", hideClaim);
   $("btn-claim").classList.toggle("flex", !hideClaim);
   $("manual-join").classList.toggle("hidden", !(showAcct && !sbSignedIn()));
@@ -448,6 +448,14 @@ function renderDeviceList(devices) {
       const wakeBtn = card.querySelector(".btn-wake");
       if (wakeBtn) wakeBtn.onclick = () => wakeDevice(d, wakeBtn);
       card.querySelector(".btn-share").onclick = () => shareDevice(d);
+      // always offer Remove on own devices
+      if (d.mine) {
+        const delBtn = document.createElement("button");
+        delBtn.className = "mt-2 w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-surface-container-low hover:bg-error-container text-on-surface hover:text-on-error-container text-xs font-medium transition-colors";
+        delBtn.innerHTML = '<span class="material-symbols-outlined text-base">delete</span><span>Remove device</span>';
+        delBtn.onclick = () => removeDevice(d, delBtn);
+        card.appendChild(delBtn);
+      }
       // v8.1: logs button for own devices
       if (d.mine && d.online) {
         const logBtn = document.createElement("button");
@@ -458,6 +466,21 @@ function renderDeviceList(devices) {
       }
       list.appendChild(card);
     });
+}
+async function removeDevice(d, btn) {
+  if (!confirm(`Remove "${d.name || d.id}" from your devices? You can re-add it anytime with its link code.`)) return;
+  btn.disabled = true;
+  try {
+    const token = sbOn() ? await sbToken() : null;
+    const r = await fetch(serverBase() + "/api/devices/" + encodeURIComponent(d.id), {
+      method: "DELETE",
+      headers: token ? { Authorization: "Bearer " + token } : {},
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "remove failed");
+    toast("Device removed");
+    loadDevices(true);
+  } catch (e) { toast(e.message); btn.disabled = false; }
 }
 async function wakeDevice(d, btn) {
   btn.disabled = true;

@@ -119,7 +119,7 @@ const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css
 const httpServer = http.createServer((req, res) => {
   const url = new URL(req.url, "http://x");
   // CORS: the console may be hosted on another origin (e.g. Vercel) than this relay
-  const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
+  const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
   if (req.method === "OPTIONS") { res.writeHead(204, cors); return res.end(); }
   if (url.pathname === "/api/health") {
     res.writeHead(200, { "Content-Type": "application/json", ...cors });
@@ -160,6 +160,25 @@ const httpServer = http.createServer((req, res) => {
     });
     res.writeHead(200, { "Content-Type": "application/json", ...cors });
     return res.end(JSON.stringify({ devices: list }));
+  }
+  if (url.pathname.startsWith("/api/devices/") && req.method === "DELETE") {
+    // unclaim / remove a device from the signed-in user's account
+    const done = (code, obj) => {
+      res.writeHead(code, { "Content-Type": "application/json", ...cors });
+      res.end(JSON.stringify(obj));
+    };
+    const agentId = decodeURIComponent(url.pathname.slice("/api/devices/".length));
+    (async () => {
+      if (!sbOn) return done(200, { ok: true });
+      const user = await sbVerify(bearerToken(req));
+      if (!user) return done(401, { error: "sign in required" });
+      const r = await sb("/rest/v1/devices?user_id=eq." + encodeURIComponent(user.id) + "&agent_id=eq." + encodeURIComponent(agentId), {
+        method: "DELETE", token: bearerToken(req),
+      });
+      if (!r.ok) return done(502, { error: "could not remove device" });
+      done(200, { ok: true });
+    })().catch(() => done(500, { error: "remove failed" }));
+    return;
   }
   if (url.pathname === "/api/config") {
     // public client config: Supabase URL + anon key (public by design)
