@@ -12,6 +12,7 @@ import (
 	"image"
 	_ "image/jpeg"
 	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/gorilla/websocket"
@@ -40,11 +41,20 @@ var (
 
 func sendWSJSON(v any) {
 	b, _ := json.Marshal(v)
+	wsWrite(websocket.TextMessage, b)
+}
+
+// wsWrite is the ONLY way to write to the websocket (v8.0).
+// Gorilla connections allow one concurrent writer; a single mutex
+// prevents the data races that hung/crashed the agent.
+func wsWrite(mt int, data []byte) error {
 	wsWriteMu.Lock()
 	defer wsWriteMu.Unlock()
-	if wsConn != nil {
-		_ = wsConn.WriteMessage(websocket.TextMessage, b)
+	if wsConn == nil {
+		return fmt.Errorf("not connected")
 	}
+	wsConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	return wsConn.WriteMessage(mt, data)
 }
 
 // ---------- incoming signaling (called from the netloop) ----------

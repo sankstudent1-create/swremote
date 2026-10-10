@@ -443,8 +443,12 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		var rc = [4]int32{100, 14, 420, 60}
 		pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16("SWRemote"))), 8, uintptr(unsafe.Pointer(&rc)), 0)
 		pSelectObject.Call(hdc, gFonts["sub"])
-		rc = [4]int32{100, 58, 420, 84}
+		rc = [4]int32{100, 58, 280, 84}
 		pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16("by SWInfoSystems"))), 16, uintptr(unsafe.Pointer(&rc)), 0)
+		// version badge (v8.0: always visible in the header)
+		pSelectObject.Call(hdc, gFonts["small"])
+		rc = [4]int32{100, 80, 280, 100}
+		pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16("v"+appVersion))), 0xFFFFFFFF, uintptr(unsafe.Pointer(&rc)), 0)
 		pSelectObject.Call(hdc, old)
 		drawLogo(hdc)
 		drawPill(hdc)

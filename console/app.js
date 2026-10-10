@@ -408,8 +408,8 @@ function renderDeviceList(devices) {
                 <span class="text-[11px] text-on-surface-variant font-mono mt-0.5">#${esc(d.id)}</span>
               </div>
             </div>
-            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full ${d.online ? "bg-tertiary-fixed text-on-tertiary-fixed-variant" : "bg-surface-container-high text-on-surface-variant"} text-[11px] font-semibold shrink-0">
-              <span class="w-1.5 h-1.5 rounded-full ${d.online ? "bg-tertiary animate-pulse" : "bg-surface-variant"}"></span>${d.online ? "Online" : "Offline"}
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full ${d.online ? "bg-tertiary-fixed text-on-tertiary-fixed-variant" : d.serviceOnline ? "bg-secondary-fixed text-primary" : "bg-surface-container-high text-on-surface-variant"} text-[11px] font-semibold shrink-0">
+              <span class="w-1.5 h-1.5 rounded-full ${d.online ? "bg-tertiary animate-pulse" : d.serviceOnline ? "bg-primary animate-pulse" : "bg-surface-variant"}"></span>${d.online ? "Online" : d.serviceOnline ? "Service on" : "Offline"}
             </span>
           </div>
           <div class="bg-surface-container-low rounded-xl px-3 py-2.5 flex items-center justify-between">
@@ -418,13 +418,48 @@ function renderDeviceList(devices) {
         </div>
         <div class="flex items-center gap-2 pt-5">
           <button class="btn-share flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-surface-container-low hover:bg-surface-container text-on-surface text-sm font-medium transition-colors"><span class="material-symbols-outlined text-base text-secondary">share</span><span>Share</span></button>
-          <button class="btn-connect flex-[1.4] flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl ${d.online ? "bg-primary hover:bg-primary-container text-on-primary" : "bg-surface-container-high text-on-surface-variant"} text-sm font-medium shadow-sm transition-all" ${d.online ? "" : "disabled"}><span class="material-symbols-outlined text-base">${d.mine ? "play_arrow" : "lock"}</span><span>${d.mine ? "Open" : "Connect"}</span></button>
+          ${!d.online && d.serviceOnline && d.mine
+            ? `<button class="btn-wake flex-[1.4] flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-tertiary-fixed text-on-tertiary-fixed-variant text-sm font-medium shadow-sm transition-all"><span class="material-symbols-outlined text-base">power_settings_new</span><span>Wake</span></button>`
+            : `<button class="btn-connect flex-[1.4] flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl ${d.online ? "bg-primary hover:bg-primary-container text-on-primary" : "bg-surface-container-high text-on-surface-variant"} text-sm font-medium shadow-sm transition-all" ${d.online ? "" : "disabled"}><span class="material-symbols-outlined text-base">${d.mine ? "play_arrow" : "lock"}</span><span>${d.mine ? "Open" : "Connect"}</span></button>`}
         </div>`;
       // own devices join with the account token — no PIN needed
       if (d.online) card.querySelector(".btn-connect").onclick = () => d.mine ? startSessionToken(d) : askPin(d);
+      const wakeBtn = card.querySelector(".btn-wake");
+      if (wakeBtn) wakeBtn.onclick = () => wakeDevice(d, wakeBtn);
       card.querySelector(".btn-share").onclick = () => shareDevice(d);
       list.appendChild(card);
     });
+}
+async function wakeDevice(d, btn) {
+  btn.disabled = true;
+  const orig = btn.innerHTML;
+  btn.innerHTML = '<span class="material-symbols-outlined text-base animate-spin">refresh</span><span>Waking…</span>';
+  try {
+    const token = await sbToken();
+    const r = await fetch(serverBase() + "/api/wake", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+      body: JSON.stringify({ id: d.id }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "wake failed");
+    toast("Wake signal sent — the PC should come online shortly");
+    // poll for the agent coming online
+    let tries = 0;
+    const iv = setInterval(async () => {
+      tries++;
+      await loadDevices(true);
+      const dev = lastDevices.find((x) => x.id === d.id);
+      if ((dev && dev.online) || tries > 10) {
+        clearInterval(iv);
+        if (dev && dev.online) toast("PC is online");
+      }
+    }, 3000);
+  } catch (e) {
+    toast(e.message);
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
 }
 function shareDevice(d) {
   const link = location.origin + location.pathname + "?id=" + encodeURIComponent(d.id);

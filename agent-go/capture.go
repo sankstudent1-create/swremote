@@ -136,11 +136,7 @@ func sendBinary(kind byte, data []byte) {
 	pkt := make([]byte, 1+len(data))
 	pkt[0] = kind
 	copy(pkt[1:], data)
-	wsWriteMu.Lock()
-	defer wsWriteMu.Unlock()
-	if wsConn != nil {
-		_ = wsConn.WriteMessage(websocket.BinaryMessage, pkt)
-	}
+	_ = wsWrite(websocket.BinaryMessage, pkt)
 }
 
 // ---------- mic capture (WASAPI) ----------

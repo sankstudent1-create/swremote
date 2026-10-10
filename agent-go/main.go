@@ -30,7 +30,7 @@ import (
 )
 
 // appVersion is overridden at build time: -ldflags "-X main.appVersion=3.1.0"
-var appVersion = "7.0.0"
+var appVersion = "8.0.0"
 
 var (
 	cfg   *Config
@@ -498,7 +498,7 @@ func runSession(cfg *Config) error {
 		"t": "register", "id": cfg.DeviceID, "name": cfg.Name,
 		"pin": cfg.PIN, "platform": "windows", "claimCode": cfg.ClaimCode,
 	})
-	if err := ws.WriteMessage(websocket.TextMessage, reg); err != nil {
+	if err := wsWrite(websocket.TextMessage, reg); err != nil {
 		return err
 	}
 
@@ -550,8 +550,7 @@ func runSession(cfg *Config) error {
 				pkt := make([]byte, 0, len(data)+1)
 				pkt = append(pkt, 0x01)
 				pkt = append(pkt, data...)
-				ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
-				if err := ws.WriteMessage(websocket.BinaryMessage, pkt); err != nil {
+				if err := wsWrite(websocket.BinaryMessage, pkt); err != nil {
 					return
 				}
 				lastKeyframe = time.Now()
@@ -574,8 +573,7 @@ func runSession(cfg *Config) error {
 						binary.BigEndian.PutUint16(ib[:], uint16(idx))
 						pkt = append(pkt, ib[:]...)
 						pkt = append(pkt, tile...)
-						ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
-						if err := ws.WriteMessage(websocket.BinaryMessage, pkt); err != nil {
+								if err := wsWrite(websocket.BinaryMessage, pkt); err != nil {
 							return
 						}
 					}
@@ -628,8 +626,7 @@ func runSession(cfg *Config) error {
 				continue
 			}
 			lx, ly = x, y
-			ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			_ = ws.WriteMessage(websocket.TextMessage,
+			_ = wsWrite(websocket.TextMessage,
 				[]byte(fmt.Sprintf(`{"t":"cursor","x":%d,"y":%d}`, x, y)))
 		}
 	})
@@ -643,8 +640,7 @@ func runSession(cfg *Config) error {
 			case <-stop:
 				return
 			case <-t.C:
-				ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
-				_ = ws.WriteMessage(websocket.TextMessage, []byte(`{"t":"ping"}`))
+				_ = wsWrite(websocket.TextMessage, []byte(`{"t":"ping"}`))
 			}
 		}
 	})

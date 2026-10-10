@@ -187,6 +187,20 @@ function Install-SWRemote($dir, $desktop, $startmenu, $startup) {
   if ($startup) { Set-ItemProperty -Path $runKey -Name $AppName -Value "`"$target`"" }
   else { Remove-ItemProperty -Path $runKey -Name $AppName -ErrorAction SilentlyContinue }
 
+  Set-Progress 84 "Installing background service…"
+  # v8.0: SWRemote Service — always-connected, enables remote wake from the website
+  $svcExe = Join-Path $dir "SWRemote-Service.exe"
+  $svcSrc = Join-Path (Split-Path $SrcExe -Parent) "SWRemote-Service.exe"
+  if (Test-Path $svcSrc) {
+    Copy-Item -Path $svcSrc -Destination $svcExe -Force
+    & sc.exe stop SWRemoteService 2>$null | Out-Null
+    & sc.exe delete SWRemoteService 2>$null | Out-Null
+    Start-Sleep -Milliseconds 500
+    & sc.exe create SWRemoteService binPath= "`"$svcExe`"" start= auto DisplayName= "SWRemote Service" | Out-Null
+    & sc.exe description SWRemoteService "Keeps this PC reachable from your SWRemote dashboard and starts the agent on demand." | Out-Null
+    & sc.exe start SWRemoteService 2>$null | Out-Null
+  }
+
   Set-Progress 90 "Registering uninstaller…"
   $unKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$AppName"
   New-Item -Path $unKey -Force | Out-Null
@@ -216,6 +230,8 @@ function Uninstall-SWRemote {
   $BtnBack.Visibility = "Collapsed"; $BtnNext.Visibility = "Collapsed"
   Set-Progress 20 "Stopping SWRemote…"
   Get-Process -Name "SWRemote-Agent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  & sc.exe stop SWRemoteService 2>$null | Out-Null
+  & sc.exe delete SWRemoteService 2>$null | Out-Null
   Start-Sleep -Milliseconds 800
   Set-Progress 45 "Removing shortcuts…"
   Remove-Item (Join-Path ([Environment]::GetFolderPath("Desktop")) "SWRemote.lnk") -ErrorAction SilentlyContinue
@@ -225,6 +241,7 @@ function Uninstall-SWRemote {
   Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$AppName" -Recurse -ErrorAction SilentlyContinue
   Set-Progress 85 "Removing files…"
   Remove-Item (Join-Path $InstallDir $ExeName) -Force -ErrorAction SilentlyContinue
+  Remove-Item (Join-Path $InstallDir "SWRemote-Service.exe") -Force -ErrorAction SilentlyContinue
   Remove-Item (Join-Path $InstallDir "version.txt") -Force -ErrorAction SilentlyContinue
   Remove-Item (Join-Path $InstallDir "swremote.json") -Force -ErrorAction SilentlyContinue
   # remove dir if empty

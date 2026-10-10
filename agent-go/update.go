@@ -131,10 +131,18 @@ func downloadUpdate(url string) (string, error) {
 
 // applyUpdate swaps the running exe with the new one via a helper batch
 // (Windows cannot replace a running executable directly), then restarts.
+// v8.0: the batch VERIFIES the move succeeded before restarting — previously
+// a failed move silently restarted the OLD exe ("closes but opens older version").
 func applyUpdate(newExe string) error {
 	cur, err := os.Executable()
 	if err != nil {
 		return err
+	}
+	// pre-flight: make sure we can write to the destination dir
+	if f, err := os.OpenFile(cur, os.O_WRONLY, 0644); err != nil {
+		return fmt.Errorf("cannot replace running exe (need admin?): %v", err)
+	} else {
+		f.Close()
 	}
 	bat := filepath.Join(os.TempDir(), "swremote-update.bat")
 	script := "@echo off\r\n" +
@@ -145,6 +153,11 @@ func applyUpdate(newExe string) error {
 		"tasklist /FI \"PID eq %PID%\" 2>nul | find \"%PID%\" >nul\r\n" +
 		"if not errorlevel 1 (timeout /t 1 /nobreak >nul & goto loop)\r\n" +
 		"move /Y %SRC% %DST% >nul\r\n" +
+		"if errorlevel 1 (\r\n" +
+		"  powershell -NoProfile -Command \"Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('Could not replace SWRemote.exe — please run as administrator and try again.','SWRemote Update','OK','Error')\"\r\n" +
+		"  del \"%~f0\"\r\n" +
+		"  exit /b 1\r\n" +
+		")\r\n" +
 		"start \"\" %DST%\r\n" +
 		"del \"%~f0\"\r\n"
 	if err := os.WriteFile(bat, []byte(script), 0644); err != nil {

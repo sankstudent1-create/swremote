@@ -1,5 +1,5 @@
 {
-  "version": "7.0.0",
-  "notes": "v7.0: calls auto-connect (no Accept prompt on PC). PC camera+mic stream to viewer when requested (DirectShow + WASAPI, both ON by default); logged-in viewer controls PC cam/mic from website. Viewer video on PC is now PiP (always-on-top corner) with audio through PC speakers.",
+  "version": "8.0.0",
+  "notes": "v8.0: SWRemote Service (always-connected Windows Service, remote wake from website). Fixed updater (verifies replace, no more old-version restarts). Fixed hangs (single WS write mutex). Agent shows version in header.",
   "url": "https://swremote-relay.onrender.com/download/agent"
 }

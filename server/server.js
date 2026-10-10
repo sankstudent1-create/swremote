@@ -93,17 +93,20 @@ function pinHash(deviceId, pin) {
 // ---------- live state ----------
 const agents = new Map();   // deviceId -> { ws, name, platform, screen, lastSeen, viewers:Set }
 const viewers = new Map();  // ws -> { deviceId }
+const services = new Map(); // deviceId -> { ws, lastSeen } — v8.0 always-on service
 
 function send(ws, obj) {
   if (ws.readyState === 1) ws.send(JSON.stringify(obj));
 }
 
 function devicePublic(id, d, live) {
+  const svc = services.get(id);
   return {
     id,
     name: d.name || id,
     platform: d.platform || "windows",
     online: !!(live && live.ws && live.ws.readyState === 1),
+    serviceOnline: !!(svc && svc.ws && svc.ws.readyState === 1),
     viewers: live ? live.viewers.size : 0,
     screen: live ? live.screen : null,
     lastSeen: live ? live.lastSeen : (d.lastSeen || null),
@@ -135,10 +138,12 @@ const httpServer = http.createServer((req, res) => {
         const rows = await sbMyDevices(bearerToken(req));
         finish(rows.map((row) => {
           const live = agents.get(row.agent_id);
+          const svc = services.get(row.agent_id);
           return {
             id: row.agent_id, name: row.name || row.agent_id,
             platform: "windows",
             online: !!(live && live.ws && live.ws.readyState === 1),
+            serviceOnline: !!(svc && svc.ws && svc.ws.readyState === 1),
             viewers: live ? live.viewers.size : 0,
             screen: live ? live.screen : null,
             lastSeen: live ? live.lastSeen : (row.last_seen || null),
@@ -163,6 +168,31 @@ const httpServer = http.createServer((req, res) => {
       supabaseUrl: SUPABASE_URL || null,
       supabaseAnonKey: SUPABASE_ANON_KEY || null,
     }));
+  }
+  // v8.0: wake an offline agent via its always-on service (owner only)
+  if (url.pathname === "/api/wake" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", async () => {
+      const done = (code, obj) => {
+        res.writeHead(code, { "Content-Type": "application/json", ...cors });
+        res.end(JSON.stringify(obj));
+      };
+      if (!sbOn) return done(503, { error: "accounts not enabled" });
+      const user = await sbVerify(bearerToken(req));
+      if (!user) return done(401, { error: "sign in required" });
+      let id = "";
+      try { id = String(JSON.parse(body || "{}").id || ""); } catch {}
+      if (!id) return done(400, { error: "device id required" });
+      if (!(await sbOwns(bearerToken(req), id)))
+        return done(403, { error: "this device is not on your account" });
+      const svc = services.get(id);
+      if (!svc || svc.ws.readyState !== 1)
+        return done(409, { error: "PC service is offline — the PC may be powered off" });
+      send(svc.ws, { t: "wake" });
+      return done(200, { ok: true });
+    });
+    return;
   }
   if (url.pathname === "/api/claim" && req.method === "POST") {
     // claim a device by its 6-char code shown in the agent window
@@ -258,6 +288,22 @@ wss.on("connection", (ws) => {
 
     let msg;
     try { msg = JSON.parse(raw.toString()); } catch { return send(ws, { t: "error", msg: "bad json" }); }
+
+    // ---- service registers (v8.0 always-on) ----
+    if (msg.t === "svc-register") {
+      const id = String(msg.id || "");
+      if (!id) return send(ws, { t: "error", msg: "id required" });
+      role = "service"; deviceId = id;
+      const prev = services.get(id);
+      if (prev && prev.ws !== ws) { try { prev.ws.close(4000, "replaced"); } catch {} }
+      services.set(id, { ws, lastSeen: Date.now() });
+      return send(ws, { t: "svc-registered", id });
+    }
+    if (msg.t === "svc-ping" && role === "service") {
+      const rec = services.get(deviceId);
+      if (rec) rec.lastSeen = Date.now();
+      return send(ws, { t: "pong" });
+    }
 
     // ---- agent registers ----
     if (msg.t === "register") {
@@ -371,6 +417,10 @@ wss.on("connection", (ws) => {
       viewers.delete(ws);
       const rec = agents.get(deviceId);
       if (rec) { rec.viewers.delete(ws); sendViewers(rec); }
+    }
+    if (role === "service" && deviceId) {
+      const rec = services.get(deviceId);
+      if (rec && rec.ws === ws) services.delete(deviceId);
     }
   });
 });
