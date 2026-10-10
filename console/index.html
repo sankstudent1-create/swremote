@@ -345,8 +345,8 @@
     <div class="sheet-head"><div class="sheet-grip"></div><b>Video call</b><button class="icon-btn" data-close="call-panel">✕</button></div>
     <div class="p-4 flex flex-col gap-3">
       <div id="call-remote" class="relative rounded-2xl bg-surface-container-low overflow-hidden" style="aspect-ratio:4/3">
-        <div class="absolute inset-0 grid place-items-center text-center p-6">
-          <div><div class="text-4xl mb-2">🖥️</div><div class="font-semibold text-sm">PC camera</div><div class="text-xs text-on-surface-variant">Coming in a PC app update</div></div>
+        <div class="pc-cam-placeholder absolute inset-0 grid place-items-center text-center p-6">
+          <div><div class="text-4xl mb-2">🖥️</div><div class="font-semibold text-sm">PC camera</div><div class="pc-cam-msg text-xs text-on-surface-variant">Waiting for video…</div></div>
         </div>
         <video id="call-remote-video" class="absolute inset-0 w-full h-full object-cover hidden" autoplay playsinline muted></video>
       </div>
@@ -365,7 +365,8 @@
             <button id="call-start" class="flex-1 py-2.5 rounded-xl bg-primary text-on-primary font-semibold text-sm">📞 Call</button>
             <button id="call-end" class="flex-1 py-2.5 rounded-xl bg-error-container text-on-error-container font-semibold text-sm hidden">End</button>
           </div>
-          <button id="call-mute-pc" class="hidden py-2 rounded-xl bg-surface-container-low text-xs font-semibold">🔇 Mute PC side</button>
+          <button id="call-mute-pc" class="hidden py-2 rounded-xl bg-surface-container-low text-xs font-semibold">🔇 Mute PC mic</button>
+          <button id="call-cam-pc" class="hidden py-2 rounded-xl bg-surface-container-low text-xs font-semibold">📷 PC cam off</button>
         </div>
       </div>
     </div>

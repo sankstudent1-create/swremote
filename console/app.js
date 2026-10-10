@@ -513,7 +513,7 @@ function onWsMsg(ev) {
   else if (m.t === "chat") addChat(m.text, false);
   else if (m.t === "cursor") moveRemoteCursor(m.x, m.y);
   else if (m.t === "file_meta") noteFileFromAgent(m);
-  else if (m.t === "call-accept" || m.t === "call-end" || m.t === "call-decline") onCallSignal(m);
+  else if (m.t === "call-accept" || m.t === "call-end" || m.t === "call-decline" || m.t === "av-state") onCallSignal(m);
 }
 
 function handleBinary(u8) {
@@ -521,6 +521,35 @@ function handleBinary(u8) {
   if (kind === BIN_FRAME) { drawFrame(u8.subarray(1)); return; }
   if (kind === BIN_TILE) { queueTile(u8); return; }
   if (kind === BIN_FILE) { recvFileChunk(u8.subarray(1)); return; }
+  if (kind === 0x06) { showPCVideo(u8.subarray(1)); return; } // PC camera frame
+  if (kind === 0x07) { playPCAudio(u8.subarray(1)); return; } // PC mic PCM
+}
+
+// PC camera frame -> remote video panel
+let pcVideoURL = null;
+function showPCVideo(jpeg) {
+  const v = $("call-remote-video");
+  if (!v) return;
+  try {
+    if (pcVideoURL) URL.revokeObjectURL(pcVideoURL);
+    pcVideoURL = URL.createObjectURL(new Blob([jpeg], { type: "image/jpeg" }));
+    v.src = pcVideoURL;
+    v.classList.remove("hidden");
+  } catch {}
+}
+// PC mic PCM (8kHz mono 16-bit) -> speakers
+let pcAudioCtx = null;
+function playPCAudio(pcm) {
+  try {
+    pcAudioCtx = pcAudioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const n = pcm.length / 2;
+    const buf = pcAudioCtx.createBuffer(1, n, 8000);
+    const ch = buf.getChannelData(0);
+    const dv = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+    for (let i = 0; i < n; i++) ch[i] = dv.getInt16(i * 2, true) / 32768;
+    const src = pcAudioCtx.createBufferSource();
+    src.buffer = buf; src.connect(pcAudioCtx.destination); src.start();
+  } catch {}
 }
 
 const canvas = $("screen"), ctx = canvas.getContext("2d");
@@ -777,7 +806,9 @@ const isOwnerViewer = () => sbOn() && sbSignedIn();
 
 $("btn-call").onclick = () => {
   toggleDrawer("call-panel");
-  $("call-mute-pc").classList.toggle("hidden", !isOwnerViewer());
+  const owner = isOwnerViewer();
+  $("call-mute-pc").classList.toggle("hidden", !owner);
+  $("call-cam-pc").classList.toggle("hidden", !owner);
 };
 function callSetStatus(t) { $("call-status").textContent = t; }
 function callSend(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
@@ -865,14 +896,38 @@ $("call-cam").onclick = () => {
   callSend({ t: "av-state", cam: callCamOn, mic: callMicOn });
 };
 $("call-mute-pc").onclick = () => {
-  // owner viewer can mute the PC side too
-  callSend({ t: "av-ctrl", target: "agent", mic: false });
-  toast("PC muted");
+  // owner viewer toggles the PC's mic
+  pcMicOn = !pcMicOn;
+  callSend({ t: "av-ctrl", target: "agent", mic: pcMicOn });
+  updatePCCallUI();
 };
+$("call-cam-pc").onclick = () => {
+  // owner viewer toggles the PC's camera
+  pcCamOn = !pcCamOn;
+  callSend({ t: "av-ctrl", target: "agent", cam: pcCamOn });
+  updatePCCallUI();
+};
+let pcCamOn = true, pcMicOn = true;
 function onCallSignal(m) {
   if (m.t === "call-accept" && callState === "calling") { callState = "incall"; callSetStatus("Connected — they can see & hear you"); }
   else if (m.t === "call-end" && callState !== "idle") { callStop(); callSetStatus("They ended the call"); toast("Call ended"); }
   else if (m.t === "call-decline" && callState === "calling") { callStop(); callSetStatus("They declined"); }
+  else if (m.t === "av-state" && m.side === "agent") {
+    pcCamOn = m.cam !== false; pcMicOn = m.mic !== false;
+    updatePCCallUI();
+  }
+}
+function updatePCCallUI() {
+  const el = $("call-remote");
+  if (!el) return;
+  const ph = el.querySelector(".pc-cam-placeholder");
+  if (pcCamOn) { if (ph) ph.style.display = "none"; }
+  else {
+    $("call-remote-video").classList.add("hidden");
+    if (ph) { ph.style.display = "grid"; ph.querySelector(".pc-cam-msg").textContent = "PC camera is off"; }
+  }
+  $("call-mute-pc").textContent = (pcMicOn ? "🔇 Mute PC mic" : "🎤 Unmute PC mic");
+  $("call-cam-pc").textContent = (pcCamOn ? "📷 PC cam off" : "📷 PC cam on");
 }
 
 /* ---------- chat ---------- */

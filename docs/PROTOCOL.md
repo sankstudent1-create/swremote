@@ -66,6 +66,13 @@ Viewer→agent (v6.0 video call):
 | `0x04` | `04` + JPEG | viewer camera frame (~5fps) → PC video window |
 | `0x05` | `05` + PCM | viewer mic: 8kHz mono 16-bit PCM → PC speakers via waveOut |
 
+Agent→viewer (v7.0 — PC streams back):
+
+| Kind | Layout | Meaning |
+|---|---|---|
+| `0x06` | `06` + JPEG | PC camera frame (~5fps, DirectShow) |
+| `0x07` | `07` + PCM | PC mic: 8kHz mono 16-bit PCM (WASAPI) |
+
 Tile index: `idx = row * cols + col`, `cols = ceil(width/128)`. The viewer learns
 `width/height` from the last keyframe (or the `screen` field in `joined`).
 

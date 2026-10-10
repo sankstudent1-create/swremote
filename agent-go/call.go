@@ -8,6 +8,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"image"
 	_ "image/jpeg"
 	"sync"
@@ -28,6 +29,10 @@ var (
 	videoHWND uintptr
 	videoImg  image.Image
 	videoMu   sync.Mutex
+
+	// PC-side capture state (v7.0) — both on by default during a call
+	pcCamOn bool
+	pcMicOn bool
 
 	wsWriteMu sync.Mutex
 	wsConn    *websocket.Conn
@@ -56,22 +61,21 @@ func onCallStart(msg map[string]any) {
 		return
 	}
 	callMu.Unlock()
-	go func() {
-		if msgBoxYesNo("SWRemote call", name+" wants a video call.\nAccept?") {
-			callMu.Lock()
-			callActive = true
-			callPeerName = name
-			callPeerCam, callPeerMic = true, true
-			playMuted = false
-			callMu.Unlock()
-			sendWSJSON(map[string]any{"t": "call-accept"})
-			guiSetStatus("On a call with "+name, true)
-			openVideoWindow()
-			notify("SWRemote call", "Video call with "+name)
-		} else {
-			sendWSJSON(map[string]any{"t": "call-decline"})
-		}
-	}()
+	// v7.0: auto-connect — no Accept/Decline prompt on the PC
+	callMu.Lock()
+	callActive = true
+	callPeerName = name
+	callPeerCam, callPeerMic = true, true
+	playMuted = false
+	// PC camera+mic are ON by default when a call connects
+	pcCamOn, pcMicOn = true, true
+	callMu.Unlock()
+	sendWSJSON(map[string]any{"t": "call-accept"})
+	sendWSJSON(map[string]any{"t": "av-state", "side": "agent", "cam": true, "mic": true})
+	guiSetStatus("On a call with "+name, true)
+	openVideoWindow()
+	startPCCapture()
+	notify("SWRemote call", "Video call with "+name)
 }
 
 func onCallEnd() {
@@ -82,6 +86,7 @@ func onCallEnd() {
 	if was {
 		closeVideoWindow()
 		stopAudio()
+		stopPCCapture()
 		guiSetStatus("Online — waiting for viewers…", true)
 		notify("SWRemote call", "Call ended")
 	}
@@ -102,21 +107,43 @@ func onPeerAV(msg map[string]any) {
 	}
 }
 
-// av-ctrl: a logged-in viewer mutes/unmutes this PC's playback
+// av-ctrl: a logged-in viewer controls this PC's camera/mic capture.
+// Both are ON by default; the viewer can turn either off (or back on).
 func onAVCtrl(msg map[string]any) {
+	callMu.Lock()
+	changed := false
+	if v, ok := msg["cam"].(bool); ok {
+		pcCamOn = v
+		changed = true
+	}
 	if v, ok := msg["mic"].(bool); ok {
-		callMu.Lock()
-		playMuted = !v
-		callMu.Unlock()
-		if !v {
-			stopAudio()
-		}
-		if v {
-			guiSetStatus("Call audio on", true)
-		} else {
-			guiSetStatus("Call audio muted by viewer", true)
+		pcMicOn = v
+		changed = true
+	}
+	cam, mic := pcCamOn, pcMicOn
+	callMu.Unlock()
+	if changed {
+		sendWSJSON(map[string]any{"t": "av-state", "side": "agent", "cam": cam, "mic": mic})
+		guiSetStatus(fmt.Sprintf("PC camera %s, mic %s (by viewer)", onOff(cam), onOff(mic)), true)
+	}
+	// legacy: mic-only form mutes this PC's playback of the peer
+	if _, hasCam := msg["cam"]; !hasCam {
+		if v, ok := msg["mic"].(bool); ok {
+			callMu.Lock()
+			playMuted = !v
+			callMu.Unlock()
+			if !v {
+				stopAudio()
+			}
 		}
 	}
+}
+
+func onOff(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
 }
 
 // ---------- incoming media from the peer ----------
@@ -170,9 +197,16 @@ func openVideoWindow() {
 		if r, _, _ := pRegisterClassW.Call(uintptr(unsafe.Pointer(&wc[0]))); r == 0 {
 			return
 		}
-		hwnd, _, _ := pCreateWindowExW.Call(0, uintptr(unsafe.Pointer(cls)),
+		// PiP: always-on-top, bottom-right corner of the primary screen
+		sw, _, _ := pGetSystemMetrics.Call(0) // SM_CXSCREEN
+		sh, _, _ := pGetSystemMetrics.Call(1) // SM_CYSCREEN
+		ww, wh := 256, 208
+		x, y := int(sw)-ww-16, int(sh)-wh-64
+		hwnd, _, _ := pCreateWindowExW.Call(
+			0x00000008, // WS_EX_TOPMOST
+			uintptr(unsafe.Pointer(cls)),
 			uintptr(unsafe.Pointer(u16("Video call — SWRemote"))),
-			0x00CF0000, 200, 200, 336, 299, 0, 0, 0, 0)
+			0x00CF0000, uintptr(x), uintptr(y), uintptr(ww), uintptr(wh), 0, 0, 0, 0)
 		videoHWND = hwnd
 		pShowWindow.Call(hwnd, 1)
 		pUpdateWindow.Call(hwnd)
@@ -207,7 +241,7 @@ func videoWndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		var ps paintStruct
 		hdc, _, _ := pBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 		blk, _, _ := pCreateSolidBrush.Call(0)
-		var rc = [4]int32{0, 0, 320, 270}
+		var rc = [4]int32{0, 0, 240, 192}
 		pFillRect.Call(hdc, uintptr(unsafe.Pointer(&rc)), blk)
 		pDeleteObject.Call(blk)
 		videoMu.Lock()
@@ -217,7 +251,7 @@ func videoWndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		name, peerCam := callPeerName, callPeerCam
 		callMu.Unlock()
 		if img != nil && peerCam {
-			drawVideoFrame(hdc, img, 320, 270)
+			drawVideoFrame(hdc, img, 240, 192)
 		} else {
 			pSetBkMode.Call(hdc, TRANSPARENT)
 			pSetTextColor.Call(hdc, colorRef(0xaa, 0xaa, 0xaa))
@@ -229,7 +263,7 @@ func videoWndProc(hwnd, msg, wp, lp uintptr) uintptr {
 			if !peerCam {
 				txt += " — camera off"
 			}
-			var trc = [4]int32{0, 110, 320, 160}
+			var trc = [4]int32{0, 80, 240, 120}
 			pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16(txt))), 0xFFFFFFFF, uintptr(unsafe.Pointer(&trc)), 1 /*DT_CENTER*/)
 			pSelectObject.Call(hdc, oldF)
 		}
