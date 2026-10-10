@@ -1,5 +1,5 @@
 {
-  "version": "8.2.0",
-  "notes": "v8.2: fix sbUrl avatar bug, add /download/setup endpoint, agent resizable window + install wake-up service button, mobile refresh button, sidebar relay card, illustrated empty state.",
+  "version": "8.2.1",
+  "notes": "v8.2.1: install wake-up button downloads the service exe from the relay when not bundled.",
   "url": "https://swremote-relay.onrender.com/download/agent"
 }

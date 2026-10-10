@@ -254,6 +254,16 @@ const httpServer = http.createServer((req, res) => {
     });
     return fs.createReadStream(exe).pipe(res);
   }
+  if (url.pathname === "/download/service") {
+    const exe = path.join(__dirname, "..", "service", "SWRemote-Service.exe");
+    if (!fs.existsSync(exe)) { res.writeHead(404); return res.end("not found"); }
+    res.writeHead(200, {
+      "Content-Type": "application/octet-stream",
+      "Content-Disposition": 'attachment; filename="SWRemote-Service.exe"',
+      "Content-Length": fs.statSync(exe).size,
+    });
+    return fs.createReadStream(exe).pipe(res);
+  }
   // static console
   let p = url.pathname === "/" ? "/index.html" : url.pathname;
   const file = path.normalize(path.join(CONSOLE_DIR, p));

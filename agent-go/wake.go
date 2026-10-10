@@ -4,6 +4,9 @@ package main
 // installed and running (remote wake-up ready) or not.
 
 import (
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +14,25 @@ import (
 	"time"
 	"unsafe"
 )
+
+func downloadFile(url, dest string) error {
+	c := &http.Client{Timeout: 5 * time.Minute}
+	r, err := c.Get(url)
+	if err != nil {
+		return err
+	}
+	defer r.Body.Close()
+	if r.StatusCode != 200 {
+		return fmt.Errorf("server returned %d", r.StatusCode)
+	}
+	f, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = io.Copy(f, r.Body)
+	return err
+}
 
 func wakeStatus() (string, bool) {
 	// returns (statusText, installed)
@@ -29,14 +51,16 @@ func wakeStatus() (string, bool) {
 }
 
 func installWakeService() string {
-	// install the service from the bundled SWRemote-Service.exe
+	// install the service — find SWRemote-Service.exe locally or download it
 	exe, _ := os.Executable()
 	dir := filepath.Dir(exe)
 	svcExe := filepath.Join(dir, "SWRemote-Service.exe")
 	if _, err := os.Stat(svcExe); err != nil {
-		// try the installer directory
+		// not bundled — download from the relay (v8.2.1)
 		svcExe = filepath.Join(dir, "SWRemote-Service.exe")
-		return "Service file not found — reinstall SWRemote-Setup.exe"
+		if dlErr := downloadFile(serverHTTPBase()+"/download/service", svcExe); dlErr != nil {
+			return "Could not get service file: " + dlErr.Error()
+		}
 	}
 	binPath := `"` + svcExe + `"`
 	if out, err := exec.Command("sc", "create", "SWRemoteService", "binPath=", binPath, "start=", "auto", "DisplayName=", "SWRemote Service").CombinedOutput(); err != nil {
