@@ -105,6 +105,7 @@ const (
 	PBM_SETRANGE32      = 1030
 	PBM_SETPOS          = 1026
 	MB_YESNO            = 4
+	MB_ICONERROR        = 16
 	MB_ICONQUESTION     = 32
 	MB_ICONINFORMATION  = 64
 	IDYES               = 6
@@ -141,6 +142,9 @@ const (
 	ctlWakeLbl  = 122
 	ctlWakeVal  = 123
 	ctlWakeInstall = 124
+	ctlCamLbl   = 125
+	ctlCamVal   = 126
+	ctlFixCam   = 127
 )
 
 type wndClassExW struct {
@@ -210,6 +214,7 @@ type guiState struct {
 	progress   int // -1 = hidden
 	updBtnText string
 	updBtnOn   bool
+	camStatus  string // v8.4.0: one-line camera health from runPrereqCheck
 	viewers    int
 	started    time.Time
 }
@@ -384,9 +389,9 @@ func drawPill(hdc uintptr) {
 	pSelectObject.Call(hdc, oldF)
 }
 
-var grayLabels = map[int]bool{ctlIDLabel: true, ctlPINLabel: true, ctlLinkLbl: true, ctlClaimLbl: true, ctlViewLbl: true, ctlWakeLbl: true, ctlVer: true, ctlMeta: true}
+var grayLabels = map[int]bool{ctlIDLabel: true, ctlPINLabel: true, ctlLinkLbl: true, ctlClaimLbl: true, ctlViewLbl: true, ctlWakeLbl: true, ctlCamLbl: true, ctlVer: true, ctlMeta: true}
 
-var primaryBtns = map[int]bool{ctlCopyID: true, ctlNewPIN: true, ctlCopy: true, ctlCopyClaim: true, ctlWakeInstall: true, ctlUpdate: true}
+var primaryBtns = map[int]bool{ctlCopyID: true, ctlNewPIN: true, ctlCopy: true, ctlCopyClaim: true, ctlWakeInstall: true, ctlUpdate: true, ctlFixCam: true}
 
 const WM_CTLCOLORBTN = 309
 
@@ -600,6 +605,9 @@ func onClick(id int) {
 				pSetWindowTextW.Call(gCtl[ctlWakeVal], uintptr(unsafe.Pointer(u16(msg))))
 			}
 		}()
+	case ctlFixCam:
+		// v8.4.0: repair/install the camera components on demand
+		go fixCameraFlow()
 	case ctlQuit:
 		pPostMessageW.Call(gHWND, WM_CLOSE, 0, 0)
 	case ctlAutoRun:
@@ -620,6 +628,14 @@ func onClick(id int) {
 
 func inviteLink() string {
 	return "https://swremote-relay.onrender.com/?id=" + cfg.DeviceID
+}
+
+// setCamStatus stores the camera health line and updates the window if shown.
+func setCamStatus(s string) {
+	gState.mu.Lock()
+	gState.camStatus = s
+	gState.mu.Unlock()
+	setText(ctlCamVal, s)
 }
 
 func guiSetViewers(n int) {
@@ -764,9 +780,13 @@ func runGUI() {
 	mkCtl("STATIC", "WAKE-UP", 0, 454, 384, 200, 18, ctlWakeLbl, gFonts["lbl"])
 	mkCtl("STATIC", "Checking…", SS_LEFT, 454, 404, 366, 18, ctlWakeVal, gFonts["norm"])
 	mkCtl("BUTTON", "Install wake-up", BS_PUSHBUTTON|BS_FLAT, 454, 428, 150, 30, ctlWakeInstall, gFonts["norm"])
+	// v8.4.0: camera health + one-click repair
+	mkCtl("STATIC", "CAMERA", 0, 454, 460, 200, 16, ctlCamLbl, gFonts["lbl"])
+	mkCtl("STATIC", "checking…", SS_LEFT, 560, 460, 258, 16, ctlCamVal, gFonts["small"])
 	// bottom bar
-	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON|BS_FLAT, 20, 498, 220, 38, ctlUpdate, gFonts["norm"])
-	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 258, 506, 300, 24, ctlAutoRun, gFonts["norm"])
+	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON|BS_FLAT, 20, 498, 170, 38, ctlUpdate, gFonts["norm"])
+	mkCtl("BUTTON", "Fix camera", BS_PUSHBUTTON|BS_FLAT, 200, 498, 150, 38, ctlFixCam, gFonts["norm"])
+	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 360, 506, 200, 24, ctlAutoRun, gFonts["norm"])
 	mkCtl("msctls_progress32", "", 0, 572, 510, 130, 14, ctlProg, 0)
 	pSendMessageW.Call(gCtl[ctlProg], PBM_SETRANGE32, 0, 100)
 	pShowWindow.Call(gCtl[ctlProg], 0)
@@ -780,6 +800,13 @@ func runGUI() {
 	applyStatus()
 	refreshMeta()
 	refreshWakeStatus() // v8.1: show wake-up service status
+	// v8.4.0: show the camera health found by runPrereqCheck at startup
+	gState.mu.Lock()
+	cs := gState.camStatus
+	gState.mu.Unlock()
+	if cs != "" {
+		setText(ctlCamVal, cs)
+	}
 	pSetTimer.Call(hwnd, 1, 30000, 0) // refresh uptime every 30s
 	pShowWindow.Call(hwnd, SW_SHOW)
 	pUpdateWindow.Call(hwnd)

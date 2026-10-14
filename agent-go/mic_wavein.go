@@ -40,19 +40,33 @@ type waveInHdr struct {
 
 var waveInHandle uintptr
 
-//export waveInProc
+// waveInCh carries filled mic buffers from the Windows audio callback thread
+// to a normal Go goroutine. v8.4.0: the callback must NEVER do network I/O —
+// blocking the system audio thread inside wsWrite could stall and kill the
+// agent mid-call. The callback only copies and queues (dropping when backed up).
+var waveInCh = make(chan []byte, 32)
+
 func waveInProc(hwi uintptr, msg uint32, inst uintptr, p1 uintptr, p2 uintptr) uintptr {
-	// called by Windows on the waveIn thread; forward audio data
+	// A panic on this foreign OS thread would take down the whole process
+	// with no log line — never let that happen.
+	defer func() {
+		if r := recover(); r != nil {
+			log("waveIn callback panic: %v", r)
+		}
+	}()
 	if msg == WIM_DATA && p1 != 0 {
 		hdr := (*waveInHdr)(unsafe.Pointer(p1))
 		if hdr.dwBytesRecorded > 0 {
 			buf := make([]byte, hdr.dwBytesRecorded)
 			src := (*[1 << 30]byte)(unsafe.Pointer(hdr.lpData))[:hdr.dwBytesRecorded:hdr.dwBytesRecorded]
 			copy(buf, src)
-			// send as 0x07 binary frame (same as WASAPI path)
-			sendBinary(0x07, buf)
+			select {
+			case waveInCh <- buf:
+			default:
+				// sender is backed up — drop this chunk, never block audio
+			}
 		}
-		// re-queue the buffer
+		// re-queue the buffer (fast, non-blocking)
 		pWaveInAddBuf.Call(hwi, p1, uintptr(unsafe.Sizeof(waveInHdr{})))
 	}
 	return 0
@@ -107,7 +121,29 @@ func waveInCaptureLoop(stop <-chan struct{}) {
 	pcMicOn = true
 	reportPCAV("mic", true)
 
+	// pump: forward queued mic buffers to the viewer on a normal goroutine
+	pumpDone := make(chan struct{})
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log("waveIn pump panic: %v", r)
+			}
+			close(pumpDone)
+		}()
+		for {
+			select {
+			case <-stop:
+				return
+			case buf := <-waveInCh:
+				if pcWants("mic") {
+					sendBinary(0x07, buf)
+				}
+			}
+		}
+	}()
+
 	<-stop
+	<-pumpDone // let the pump drain before tearing down the device
 	log("mic: waveIn stopped")
 	for i := 0; i < numBufs; i++ {
 		pWaveInUnprep.Call(hwi, uintptr(unsafe.Pointer(&hdrs[i])), uintptr(unsafe.Sizeof(waveInHdr{})))

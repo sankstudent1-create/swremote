@@ -37,7 +37,23 @@ var (
 
 	wsWriteMu sync.Mutex
 	wsConn    *websocket.Conn
+	// wsConnMu guards the wsConn pointer itself (v8.4.0): runSession used to
+	// assign it without a lock while audio/capture goroutines read it.
+	wsConnMu sync.RWMutex
 )
+
+func setWSConn(c *websocket.Conn) {
+	wsConnMu.Lock()
+	wsConn = c
+	wsConnMu.Unlock()
+}
+
+func getWSConn() *websocket.Conn {
+	wsConnMu.RLock()
+	c := wsConn
+	wsConnMu.RUnlock()
+	return c
+}
 
 func sendWSJSON(v any) {
 	b, _ := json.Marshal(v)
@@ -50,11 +66,12 @@ func sendWSJSON(v any) {
 func wsWrite(mt int, data []byte) error {
 	wsWriteMu.Lock()
 	defer wsWriteMu.Unlock()
-	if wsConn == nil {
+	conn := getWSConn()
+	if conn == nil {
 		return fmt.Errorf("not connected")
 	}
-	wsConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-	return wsConn.WriteMessage(mt, data)
+	conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	return conn.WriteMessage(mt, data)
 }
 
 // ---------- incoming signaling (called from the netloop) ----------
@@ -64,6 +81,7 @@ func onCallStart(msg map[string]any) {
 	if name == "" {
 		name = "Someone"
 	}
+	log("call-start received from %s", name) // v8.4.0: lifecycle marker
 	callMu.Lock()
 	if callActive {
 		callMu.Unlock()
@@ -84,7 +102,9 @@ func onCallStart(msg map[string]any) {
 	sendWSJSON(map[string]any{"t": "av-state", "side": "agent", "cam": true, "mic": true})
 	guiSetStatus("On a call with "+name, true)
 	openVideoWindow()
+	log("call: video window opened")
 	startPCCapture()
+	log("call: pc capture started")
 	notify("SWRemote call", "Video call with "+name)
 }
 
@@ -94,6 +114,7 @@ func onCallEnd() {
 	callActive = false
 	callMu.Unlock()
 	if was {
+		log("call-end received") // v8.4.0: lifecycle marker
 		closeVideoWindow()
 		stopAudio()
 		stopPCCapture()

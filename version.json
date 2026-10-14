@@ -1,5 +1,1 @@
-{
-  "version": "8.3.2",
-  "notes": "v8.3.2: mic falls back to waveIn when WASAPI fails; camera checks for DirectShow/Media Feature Pack.",
-  "url": "https://swremote-relay.onrender.com/download/agent"
-}
+{"notes":"v8.4.0: crash-proof call audio (waveIn pump on a Go thread, correct 48-byte WAVEHDR, single playback queue), mutex-guarded connection, startup component self-check + one-click 'Fix camera' (installs Media Feature Pack on N editions via UAC, re-registers DirectShow otherwise).","url":"https://swremote-relay.onrender.com/download/agent","version":"8.4.0"}

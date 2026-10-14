@@ -442,6 +442,7 @@ func main() {
 	initLog()
 	cfg = loadConfig()
 	log("ID %s, server %s", cfg.DeviceID, cfg.Server)
+	runPrereqCheck() // v8.4.0: verify camera/mic components, log what's missing
 
 	// auto-start with Windows by default from now on; the in-window checkbox opts out
 	if !cfg.AutoRunSet {
@@ -490,8 +491,8 @@ func runSession(cfg *Config) error {
 		return err
 	}
 	defer ws.Close()
-	wsConn = ws
-	defer func() { wsConn = nil }()
+	setWSConn(ws)
+	defer setWSConn(nil)
 	ws.SetReadLimit(16 << 20)
 	fmt.Println("Connected to", cfg.Server)
 
@@ -737,7 +738,7 @@ func runSession(cfg *Config) error {
 			onAVCtrl(msg)
 		case "get-logs":
 			// v8.1: same-account viewer requests the PC's agent log
-			go sendLogs()
+			safeGo("sendlogs", sendLogs)
 		}
 	}
 }
