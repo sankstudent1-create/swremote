@@ -60,6 +60,7 @@ var (
 	pDestroyWindow    = u32.NewProc("DestroyWindow")
 	pPostMessageW     = u32.NewProc("PostMessageW")
 	pSetWindowTextW   = u32.NewProc("SetWindowTextW")
+	pGetWindowTextW   = u32.NewProc("GetWindowTextW")
 	pMessageBoxW      = u32.NewProc("MessageBoxW")
 	pBeginPaint       = u32.NewProc("BeginPaint")
 	pEndPaint         = u32.NewProc("EndPaint")
@@ -71,6 +72,7 @@ var (
 	pFindWindowW      = u32.NewProc("FindWindowW")
 	pGetSystemMetrics = u32.NewProc("GetSystemMetrics")
 	pCreateSolidBrush = g32.NewProc("CreateSolidBrush")
+	pCreatePen        = g32.NewProc("CreatePen")
 	pCreateFontW      = g32.NewProc("CreateFontW")
 	pDeleteObject     = g32.NewProc("DeleteObject")
 	pLoadImageW       = u32.NewProc("LoadImageW")
@@ -79,6 +81,11 @@ var (
 	pCoCreateInstance = o32.NewProc("CoCreateInstance")
 	pCoInitializeEx  = o32.NewProc("CoInitializeEx")
 	pSHGetFolderPathW = s32.NewProc("SHGetFolderPathW")
+	pRoundRect        = g32.NewProc("RoundRect")
+	pEllipse          = g32.NewProc("Ellipse")
+	pInvalidateRect   = u32.NewProc("InvalidateRect")
+	pGetDlgCtrlID     = u32.NewProc("GetDlgCtrlID")
+	pIsWindowVisible  = u32.NewProc("IsWindowVisible")
 )
 
 const (
@@ -90,6 +97,7 @@ const (
 
 	WM_APP_PROGRESS = WM_APP + 1
 	WM_APP_DONE     = WM_APP + 2
+	WM_APP_STEP     = WM_APP + 3
 
 	WS_CHILD   = 0x40000000
 	WS_VISIBLE = 0x10000000
@@ -113,6 +121,13 @@ const (
 	SW_SHOWNORMAL = 1
 	MB_ICONERROR  = 0x10
 	TRANSPARENT   = 1
+
+	WM_CTLCOLORSTATIC = 28
+	WM_DRAWITEM       = 43
+	ODS_SELECTED      = 1
+	DT_CENTER         = 1
+	DT_VCENTER        = 4
+	DT_SINGLELINE     = 0x20
 )
 
 type wndClassEx struct {
@@ -403,23 +418,33 @@ func delUninstallKey() {
 
 var (
 	gHWND uintptr
-	fTitle, fBody, fBig, fCheck uintptr
-	brBlue, brWhite, brFooter    uintptr
+	fHeadTitle, fHeadSub, fTitle, fBody, fBig, fSmall, fLabel, fOpt, fBtn, fCheck uintptr
+	brBlue, brWhite, brFooter, brCard, brGreen uintptr
 
-	cWelTitle, cWelBody                   uintptr
-	cChkDesk, cChkMenu, cChkStart         uintptr
-	cProTitle, cProBar, cProText          uintptr
-	cFinMark, cFinTitle, cFinBody         uintptr
-	cBtnPrimary, cBtnClose                uintptr
+	cWelTitle, cWelBody, cWelLoc, cWelOptLabel uintptr
+	cChkDesk, cChkMenu, cChkStart               uintptr
+	cDescDesk, cDescMenu, cDescStart             uintptr
+	cProTitle, cProBar, cProText                uintptr
+	cStepLbl                                   [5]uintptr
+	cFinTitle, cFinBody                         uintptr
+	cBtnPrimary, cBtnClose                      uintptr
 
 	uninstallMode bool
 	installing    bool
 	finished      string // "", "launch", "close"
 	finalTarget   string
 
-	progMu   sync.Mutex
-	progPct  int
-	progText string
+	progMu    sync.Mutex
+	progPct   int
+	progText  string
+	stepState [5]bool
+	stepNames = [5]string{
+		"Copying files",
+		"Creating shortcuts",
+		"Configuring startup",
+		"Installing background service",
+		"Registering uninstaller",
+	}
 )
 
 const (
@@ -427,27 +452,70 @@ const (
 	idClose   = 1002
 )
 
-const winW, winH = 540, 640
-const headerH = 104
+const winW, winH = 540, 660
+const headerH = 124
 const footerY = 560
+
+// option cards: (x, y, w, h) — checkbox + description live on each card
+var cardRects = [3]rect{
+	{28, 306, 512, 382},
+	{28, 394, 512, 470},
+	{28, 482, 512, 558},
+}
 
 func showPage(page string) {
 	wel := page == "welcome"
 	pro := page == "progress"
 	fin := page == "finish"
-	for _, h := range []uintptr{cWelTitle, cWelBody} {
-		showCtl(h, wel)
-	}
+	showCtl(cWelTitle, wel)
+	showCtl(cWelBody, wel)
+	showCtl(cWelLoc, wel && !uninstallMode)
+	showCtl(cWelOptLabel, wel && !uninstallMode)
 	for _, h := range []uintptr{cChkDesk, cChkMenu, cChkStart} {
 		showCtl(h, wel && !uninstallMode)
 	}
-	for _, h := range []uintptr{cProTitle, cProBar, cProText} {
+	for _, h := range []uintptr{cDescDesk, cDescMenu, cDescStart} {
+		showCtl(h, wel && !uninstallMode)
+	}
+	showCtl(cProTitle, pro)
+	showCtl(cProBar, pro)
+	showCtl(cProText, pro)
+	for _, h := range cStepLbl {
 		showCtl(h, pro)
 	}
-	for _, h := range []uintptr{cFinMark, cFinTitle, cFinBody} {
-		showCtl(h, fin)
-	}
+	showCtl(cFinTitle, fin)
+	showCtl(cFinBody, fin)
 	showCtl(cBtnPrimary, page != "progress")
+	// repaint cards / finish badge
+	pInvalidateRect.Call(gHWND, 0, 1)
+}
+
+// stepDone marks a progress step complete (green check).
+func stepDone(i int) {
+	progMu.Lock()
+	if i >= 0 && i < len(stepState) {
+		stepState[i] = true
+	}
+	progMu.Unlock()
+	pPostMessageW.Call(gHWND, WM_APP_STEP, uintptr(i), 0)
+}
+
+// setSteps resets the checklist with new labels (used by uninstall).
+func setSteps(names [5]string) {
+	progMu.Lock()
+	stepNames = names
+	for i := range stepState {
+		stepState[i] = false
+	}
+	progMu.Unlock()
+	for i, h := range cStepLbl {
+		if names[i] == "" {
+			showCtl(h, false)
+		} else {
+			showCtl(h, true)
+			setText(h, "○  "+names[i])
+		}
+	}
 }
 
 func reportProgress(pct int, text string) {
@@ -494,6 +562,7 @@ func doInstall() {
 		warnings = append(warnings, "wake-up service file: "+err.Error())
 	}
 	os.WriteFile(filepath.Join(dir, "version.txt"), []byte("v"+appVersion), 0644)
+	stepDone(0)
 
 	desk, menu, start := isChecked(cChkDesk), isChecked(cChkMenu), isChecked(cChkStart)
 
@@ -512,6 +581,7 @@ func doInstall() {
 			logf("shortcut startmenu: %v", err)
 		}
 	}
+	stepDone(1)
 
 	reportProgress(62, "Configuring startup…")
 	if start {
@@ -521,16 +591,19 @@ func doInstall() {
 	} else {
 		delRunKey()
 	}
+	stepDone(2)
 
 	reportProgress(76, "Installing background service…")
 	if w := installService(dir); w != "" {
 		warnings = append(warnings, "wake-up service: "+w)
 	}
+	stepDone(3)
 
 	reportProgress(90, "Registering uninstaller…")
 	if err := writeUninstallKey(target); err != nil {
 		warnings = append(warnings, "uninstaller entry: "+err.Error())
 	}
+	stepDone(4)
 
 	reportProgress(100, "Done")
 	finalTarget = target
@@ -543,19 +616,29 @@ func doInstall() {
 
 func doUninstall() {
 	dir := installDir()
+	setSteps([5]string{
+		"Stopping SWRemote",
+		"Removing shortcuts",
+		"Cleaning registry",
+		"Removing files",
+		"",
+	})
 	reportProgress(10, "Stopping SWRemote…")
 	stopAgent()
 	hiddenCmd("sc", "stop", "SWRemoteService")
 	hiddenCmd("sc", "delete", "SWRemoteService")
 	time.Sleep(500 * time.Millisecond)
+	stepDone(0)
 
 	reportProgress(35, "Removing shortcuts…")
 	os.Remove(filepath.Join(knownFolder(0x0000), "SWRemote.lnk"))
 	os.Remove(filepath.Join(knownFolder(0x0002), "SWRemote.lnk"))
+	stepDone(1)
 
 	reportProgress(55, "Cleaning registry…")
 	delRunKey()
 	delUninstallKey()
+	stepDone(2)
 
 	reportProgress(75, "Removing files…")
 	os.Remove(filepath.Join(dir, "SWRemote-Agent.exe"))
@@ -563,6 +646,7 @@ func doUninstall() {
 	os.Remove(filepath.Join(dir, "version.txt"))
 	os.Remove(filepath.Join(dir, "swremote.json"))
 	os.Remove(dir) // only succeeds if empty
+	stepDone(3)
 
 	reportProgress(100, "Done")
 	finishOK("Uninstalled", "SWRemote has been removed from this PC.", "close")
@@ -605,6 +689,82 @@ func wndProc(hwnd, msg, wp, lp uintptr) (ret uintptr) {
 		}
 		pDestroyWindow.Call(hwnd)
 		return 0
+	case WM_APP_STEP:
+		i := int(wp)
+		progMu.Lock()
+		done := i >= 0 && i < len(stepState) && stepState[i]
+		name := ""
+		if i >= 0 && i < len(stepNames) {
+			name = stepNames[i]
+		}
+		progMu.Unlock()
+		if done && name != "" {
+			setText(cStepLbl[i], "✓  "+name)
+		}
+		pInvalidateRect.Call(cStepLbl[i], 0, 1)
+		return 0
+	case WM_CTLCOLORSTATIC:
+		id, _, _ := pGetDlgCtrlID.Call(lp)
+		pSetBkMode.Call(wp, TRANSPARENT)
+		switch id {
+		case 211, 212, 213, 214: // descriptions + install path: soft gray on card
+			pSetTextColor.Call(wp, colorRef(0x6B, 0x7A, 0x90))
+			return brCard
+		case 215: // OPTIONS label
+			pSetTextColor.Call(wp, colorRef(0x84, 0x94, 0xAB))
+			return brWhite
+		case 311, 312, 313, 314, 315: // step checklist
+			progMu.Lock()
+			done := stepState[int(id)-311]
+			progMu.Unlock()
+			if done {
+				pSetTextColor.Call(wp, colorRef(0x22, 0xA3, 0x5F))
+			} else {
+				pSetTextColor.Call(wp, colorRef(0x84, 0x94, 0xAB))
+			}
+			return brWhite
+		case 402: // finish title
+			pSetTextColor.Call(wp, colorRef(0x16, 0x23, 0x3A))
+			return brWhite
+		case 403: // finish body
+			pSetTextColor.Call(wp, colorRef(0x5A, 0x6B, 0x85))
+			return brWhite
+		default:
+			pSetTextColor.Call(wp, colorRef(0x16, 0x23, 0x3A))
+			return brWhite
+		}
+	case WM_DRAWITEM:
+		// owner-drawn primary button: rounded blue pill, white bold text
+		type drawItem struct {
+			ctlType, ctlID, itemID, itemAction, itemState uint32
+			hwndItem, hDC                                 uintptr
+			rc                                          rect
+			itemData                                    uintptr
+		}
+		di := (*drawItem)(unsafe.Pointer(lp))
+		if di.ctlID == idPrimary {
+			pressed := di.itemState&ODS_SELECTED != 0
+			bg := colorRef(0x2F, 0x7D, 0xE1)
+			if pressed {
+				bg = colorRef(0x1E, 0x5B, 0xB8)
+			}
+			br, _, _ := pCreateSolidBrush.Call(bg)
+			pen, _, _ := pCreatePen.Call(0, 1, bg)
+			pSelectObject.Call(di.hDC, br)
+			pSelectObject.Call(di.hDC, pen)
+			pRoundRect.Call(di.hDC,
+				uintptr(di.rc.l), uintptr(di.rc.t), uintptr(di.rc.r), uintptr(di.rc.b), 20, 20)
+			pDeleteObject.Call(br)
+			pDeleteObject.Call(pen)
+			var txt [64]uint16
+			pGetWindowTextW.Call(di.hwndItem, uintptr(unsafe.Pointer(&txt[0])), 64)
+			pSetBkMode.Call(di.hDC, TRANSPARENT)
+			pSetTextColor.Call(di.hDC, colorRef(255, 255, 255))
+			pSelectObject.Call(di.hDC, fBtn)
+			pDrawTextW.Call(di.hDC, uintptr(unsafe.Pointer(&txt[0])), 0xFFFFFFFF,
+				uintptr(unsafe.Pointer(&di.rc)), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+			return 1
+		}
 	case WM_APP_PROGRESS:
 		progMu.Lock()
 		pct, txt := progPct, progText
@@ -618,13 +778,11 @@ func wndProc(hwnd, msg, wp, lp uintptr) (ret uintptr) {
 		progMu.Unlock()
 		installing = false
 		if pct == -2 {
-			setText(cFinMark, "!")
 			setText(cFinTitle, "Something went wrong")
 			setText(cFinBody, txt+"\n\nDetails were saved to:\n"+logPath)
 			finished = "close"
 		} else {
 			parts := strings.SplitN(txt, "|", 3)
-			setText(cFinMark, "✓")
 			setText(cFinTitle, parts[0])
 			setText(cFinBody, parts[1])
 			finished = parts[2]
@@ -669,6 +827,7 @@ func onPrimary() {
 		setText(cProTitle, "Removing…")
 		go doUninstall()
 	} else {
+		setSteps(stepNames) // reset checklist to install steps
 		if _, err := os.Stat(filepath.Join(installDir(), "SWRemote-Agent.exe")); err == nil {
 			setText(cProTitle, "Updating…")
 		} else {
@@ -695,24 +854,53 @@ func paintChrome(hwnd uintptr) {
 	}
 	var ps paintStruct
 	hdc, _, _ := pBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
-	// blue header
+
+	// white canvas
 	var rc rect
-	rc.l, rc.t, rc.r, rc.b = 0, 0, winW, headerH
-	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&rc)), brBlue)
-	// footer strip
-	rc.l, rc.t, rc.r, rc.b = 0, footerY, winW, winH
-	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&rc)), brFooter)
-	// header texts
+	rc.l, rc.t, rc.r, rc.b = 0, 0, winW, winH
+	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&rc)), brWhite)
+
+	// header: vertical gradient #1E5BB8 -> #5AA2F5
+	for y := int32(0); y < headerH; y++ {
+		t := float64(y) / float64(headerH)
+		r := byte(float64(0x1E) + t*float64(0x5A-0x1E))
+		g := byte(float64(0x5B) + t*float64(0xA2-0x5B))
+		b := byte(float64(0xB8) + t*float64(0xF5-0xB8))
+		br, _, _ := pCreateSolidBrush.Call(colorRef(r, g, b))
+		var band rect
+		band.l, band.t, band.r, band.b = 0, y, winW, y+1
+		pFillRect.Call(hdc, uintptr(unsafe.Pointer(&band)), br)
+		pDeleteObject.Call(br)
+	}
+
+	// monogram: white rounded square + blue "S"
+	penW, _, _ := pCreatePen.Call(0, 1, colorRef(255, 255, 255))
+	pSelectObject.Call(hdc, brWhite)
+	pSelectObject.Call(hdc, penW)
+	pRoundRect.Call(hdc, 28, 30, 92, 94, 36, 36)
+	pDeleteObject.Call(penW)
 	pSetBkMode.Call(hdc, TRANSPARENT)
-	old, _, _ := pSelectObject.Call(hdc, fTitle)
+	pSetTextColor.Call(hdc, colorRef(0x2F, 0x7D, 0xE1))
+	old, _, _ := pSelectObject.Call(hdc, fHeadTitle)
+	var mr rect
+	mr.l, mr.t, mr.r, mr.b = 28, 34, 92, 94
+	pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16("S"))), 0xFFFFFFFF,
+		uintptr(unsafe.Pointer(&mr)), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+
+	// header texts
+	pSelectObject.Call(hdc, fHeadTitle)
 	pSetTextColor.Call(hdc, colorRef(255, 255, 255))
 	var tr rect
-	tr.l, tr.t, tr.r, tr.b = 28, 20, winW-20, 58
-	pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16("SWRemote Setup"))), 0xFFFFFFFF,
+	tr.l, tr.t, tr.r, tr.b = 110, 30, winW-20, 66
+	title := "SWRemote Setup"
+	if uninstallMode {
+		title = "Uninstall SWRemote"
+	}
+	pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16(title))), 0xFFFFFFFF,
 		uintptr(unsafe.Pointer(&tr)), 0)
-	pSelectObject.Call(hdc, fBody)
+	pSelectObject.Call(hdc, fHeadSub)
 	pSetTextColor.Call(hdc, colorRef(0xDC, 0xE9, 0xFB))
-	tr.l, tr.t, tr.r, tr.b = 28, 58, winW-20, 84
+	tr.l, tr.t, tr.r, tr.b = 110, 68, winW-20, 94
 	sub := "by SWInfoSystems  •  v" + appVersion
 	if uninstallMode {
 		sub = "by SWInfoSystems"
@@ -720,6 +908,42 @@ func paintChrome(hwnd uintptr) {
 	pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16(sub))), 0xFFFFFFFF,
 		uintptr(unsafe.Pointer(&tr)), 0)
 	pSelectObject.Call(hdc, old)
+
+	// footer strip
+	rc.l, rc.t, rc.r, rc.b = 0, footerY, winW, winH
+	pFillRect.Call(hdc, uintptr(unsafe.Pointer(&rc)), brFooter)
+
+	// figure out which page is showing (by welcome title visibility)
+	vis, _, _ := pIsWindowVisible.Call(cWelTitle)
+	if vis != 0 && !uninstallMode {
+		// option cards
+		pen, _, _ := pCreatePen.Call(0, 1, colorRef(0xE3, 0xE9, 0xF2))
+		pSelectObject.Call(hdc, brCard)
+		pSelectObject.Call(hdc, pen)
+		for _, c := range cardRects {
+			pRoundRect.Call(hdc, uintptr(c.l), uintptr(c.t), uintptr(c.r), uintptr(c.b), 28, 28)
+		}
+		pDeleteObject.Call(pen)
+	} else {
+		visF, _, _ := pIsWindowVisible.Call(cFinTitle)
+		if visF != 0 {
+			// finish badge: green circle + white check
+			cx, cy, rad := int32(winW/2), int32(212), int32(44)
+			pen, _, _ := pCreatePen.Call(0, 1, colorRef(0x22, 0xA3, 0x5F))
+			pSelectObject.Call(hdc, brGreen)
+			pSelectObject.Call(hdc, pen)
+			pEllipse.Call(hdc, uintptr(cx-rad), uintptr(cy-rad), uintptr(cx+rad), uintptr(cy+rad))
+			pDeleteObject.Call(pen)
+			pSetBkMode.Call(hdc, TRANSPARENT)
+			pSetTextColor.Call(hdc, colorRef(255, 255, 255))
+			o2, _, _ := pSelectObject.Call(hdc, fCheck)
+			var cr rect
+			cr.l, cr.t, cr.r, cr.b = cx-rad, cy-rad, cx+rad, cy+rad
+			pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16("✓"))), 0xFFFFFFFF,
+				uintptr(unsafe.Pointer(&cr)), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+			pSelectObject.Call(hdc, o2)
+		}
+	}
 	pEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 }
 
@@ -735,14 +959,22 @@ func main() {
 	}
 	logf("=== SWRemote Setup v%s starting (uninstall=%v) ===", appVersion, uninstallMode)
 
+	fHeadTitle = mkFont("Segoe UI", 24, true)
+	fHeadSub = mkFont("Segoe UI", 12, false)
 	fTitle = mkFont("Segoe UI", 22, true)
 	fBody = mkFont("Segoe UI", 13, false)
 	fBig = mkFont("Segoe UI", 20, true)
-	fCheck = mkFont("Segoe UI", 64, true)
+	fSmall = mkFont("Segoe UI", 11, false)
+	fLabel = mkFont("Segoe UI", 11, true)
+	fOpt = mkFont("Segoe UI", 13, true)
+	fBtn = mkFont("Segoe UI", 14, true)
+	fCheck = mkFont("Segoe UI", 44, true)
 	logf("setup: fonts ok")
 	brBlue, _, _ = pCreateSolidBrush.Call(colorRef(0x2F, 0x7D, 0xE1))
 	brWhite, _, _ = pCreateSolidBrush.Call(colorRef(255, 255, 255))
 	brFooter, _, _ = pCreateSolidBrush.Call(colorRef(0xF1, 0xF4, 0xF9))
+	brCard, _, _ = pCreateSolidBrush.Call(colorRef(0xF7, 0xF9, 0xFC))
+	brGreen, _, _ = pCreateSolidBrush.Call(colorRef(0x22, 0xA3, 0x5F))
 	logf("setup: brushes ok")
 
 	// progress bar class
@@ -820,33 +1052,57 @@ func main() {
 
 func buildControls(hwnd uintptr) {
 	// welcome
-	cWelTitle = ctl(hwnd, "STATIC", "Welcome!", SS_LEFT, 36, 130, 468, 32, 201)
+	cWelTitle = ctl(hwnd, "STATIC", "Welcome!", SS_LEFT, 36, 142, 468, 32, 201)
 	pSendMessageW.Call(cWelTitle, 48, fBig, 1)
-	cWelBody = ctl(hwnd, "STATIC", "", SS_LEFT, 36, 168, 468, 210, 202)
-	cChkDesk = ctl(hwnd, "BUTTON", "Desktop shortcut", BS_AUTOCHECKBOX|WS_TABSTOP, 36, 392, 468, 24, 203)
-	cChkMenu = ctl(hwnd, "BUTTON", "Start Menu shortcut", BS_AUTOCHECKBOX|WS_TABSTOP, 36, 420, 468, 24, 204)
-	cChkStart = ctl(hwnd, "BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX|WS_TABSTOP, 36, 448, 468, 24, 205)
-	for _, h := range []uintptr{cChkDesk, cChkMenu, cChkStart} {
-		pSendMessageW.Call(h, BM_SETCHECK, BST_CHECKED, 0)
+	cWelBody = ctl(hwnd, "STATIC", "", SS_LEFT, 36, 178, 468, 62, 202)
+	cWelLoc = ctl(hwnd, "STATIC", "", SS_LEFT, 36, 246, 468, 20, 214)
+	pSendMessageW.Call(cWelLoc, 48, fSmall, 1)
+	cWelOptLabel = ctl(hwnd, "STATIC", "OPTIONS", SS_LEFT, 36, 280, 468, 20, 215)
+	pSendMessageW.Call(cWelOptLabel, 48, fLabel, 1)
+	chkDefs := []struct {
+		id      uintptr
+		label   string
+		desc    string
+		descID  uintptr
+		cardY   int32
+		chkVar  *uintptr
+		descVar *uintptr
+	}{
+		{203, "Desktop shortcut", "Open SWRemote right from your desktop", 211, 306, &cChkDesk, &cDescDesk},
+		{204, "Start Menu shortcut", "Find SWRemote in the Start Menu", 212, 394, &cChkMenu, &cDescMenu},
+		{205, "Start SWRemote with Windows", "Always ready when this PC boots", 213, 482, &cChkStart, &cDescStart},
+	}
+	for _, d := range chkDefs {
+		chk := ctl(hwnd, "BUTTON", d.label, BS_AUTOCHECKBOX|WS_TABSTOP, 46, d.cardY+12, 440, 22, d.id)
+		pSendMessageW.Call(chk, 48, fOpt, 1)
+		pSendMessageW.Call(chk, BM_SETCHECK, BST_CHECKED, 0)
+		*d.chkVar = chk
+		desc := ctl(hwnd, "STATIC", d.desc, SS_LEFT, 70, d.cardY+38, 420, 20, d.descID)
+		pSendMessageW.Call(desc, 48, fSmall, 1)
+		*d.descVar = desc
 	}
 	// progress
-	cProTitle = ctl(hwnd, "STATIC", "Installing…", SS_LEFT, 36, 130, 468, 32, 301)
+	cProTitle = ctl(hwnd, "STATIC", "Installing…", SS_LEFT, 36, 142, 468, 32, 301)
 	pSendMessageW.Call(cProTitle, 48, fBig, 1)
-	cProBar = ctl(hwnd, "msctls_progress32", "", PBS_SMOOTH, 36, 190, 468, 24, 302)
+	cProBar = ctl(hwnd, "msctls_progress32", "", PBS_SMOOTH, 36, 190, 468, 22, 302)
 	pSendMessageW.Call(cProBar, PBM_SETRANGE32, 0, 100)
-	cProText = ctl(hwnd, "STATIC", "", SS_LEFT, 36, 232, 468, 60, 303)
-	// finish
-	cFinMark = ctl(hwnd, "STATIC", "✓", SS_CENTER, 36, 130, 468, 100, 401)
-	pSendMessageW.Call(cFinMark, 48, fCheck, 1)
-	cFinTitle = ctl(hwnd, "STATIC", "", SS_CENTER, 36, 240, 468, 36, 402)
+	cProText = ctl(hwnd, "STATIC", "", SS_LEFT, 36, 224, 468, 24, 303)
+	for i := 0; i < 5; i++ {
+		cStepLbl[i] = ctl(hwnd, "STATIC", "○  "+stepNames[i], SS_LEFT,
+			36, int32(272+i*30), 468, 24, uintptr(311+i))
+	}
+	// finish (badge is painted; title + body are statics)
+	cFinTitle = ctl(hwnd, "STATIC", "", SS_CENTER, 36, 282, 468, 36, 402)
 	pSendMessageW.Call(cFinTitle, 48, fBig, 1)
-	cFinBody = ctl(hwnd, "STATIC", "", SS_CENTER, 56, 286, 428, 220, 403)
-	// footer buttons
-	cBtnClose = ctl(hwnd, "BUTTON", "Close", BS_PUSHBUTTON|WS_TABSTOP, 240, 590, 110, 38, idClose)
-	cBtnPrimary = ctl(hwnd, "BUTTON", "Install", BS_DEFPUSHBUTTON|WS_TABSTOP, 362, 590, 142, 38, idPrimary)
+	cFinBody = ctl(hwnd, "STATIC", "", SS_CENTER, 56, 326, 428, 180, 403)
+	// footer buttons — primary is owner-drawn (see WM_DRAWITEM)
+	cBtnClose = ctl(hwnd, "BUTTON", "Close", BS_PUSHBUTTON|WS_TABSTOP, 240, 592, 110, 38, idClose)
+	cBtnPrimary = ctl(hwnd, "BUTTON", "Install", 0xB|WS_TABSTOP /*BS_OWNERDRAW*/, 362, 592, 142, 38, idPrimary)
+	pSendMessageW.Call(cBtnPrimary, 48, fBtn, 1)
 }
 
 func configureForMode() {
+	setText(cWelLoc, "Install location:  "+installDir())
 	if uninstallMode {
 		setText(cWelTitle, "Remove SWRemote?")
 		setText(cWelBody, "This will remove the SWRemote agent, the wake-up service, shortcuts, the startup entry and settings from this PC.\r\n\r\nYour device ID is stored in the settings file and will be removed too.")
@@ -855,10 +1111,11 @@ func configureForMode() {
 	}
 	if _, err := os.Stat(filepath.Join(installDir(), "SWRemote-Agent.exe")); err == nil {
 		setText(cWelTitle, "Update available")
-		setText(cWelBody, "SWRemote is already installed on this PC. This will update it to v"+appVersion+" — your ID and PIN stay the same.\r\n\r\nWhat gets installed:\r\n• SWRemote agent — shares this PC's screen\r\n• Wake-up service — wake this PC from your dashboard\r\n• Start Menu & desktop shortcuts")
+		setText(cWelBody, "SWRemote is already installed on this PC. This will update it to v"+appVersion+" — your ID and PIN stay the same.")
 		setText(cBtnPrimary, "Update")
 	} else {
-		setText(cWelBody, "This will install SWRemote on this PC as a proper app — the agent, the wake-up service, shortcuts and an uninstaller entry. Takes less than a minute.\r\n\r\nWhat gets installed:\r\n• SWRemote agent — shares this PC's screen\r\n• Wake-up service — wake this PC from your dashboard (one admin approval)\r\n• Start Menu & desktop shortcuts\r\n• Optional: start automatically with Windows")
+		setText(cWelTitle, "Welcome to SWRemote")
+		setText(cWelBody, "Share this PC's screen and get remote help in seconds. The install takes less than a minute — pick your options below.")
 		setText(cBtnPrimary, "Install")
 	}
 }
