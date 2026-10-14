@@ -585,12 +585,21 @@ func finishWithError(msg string) {
 // window procedure
 // ---------------------------------------------------------------------------
 
-func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
+func wndProc(hwnd, msg, wp, lp uintptr) (ret uintptr) {
+	// v8.6.3: a panic in a GUI program dies silently — log it instead
+	defer func() {
+		if r := recover(); r != nil {
+			logf("setup: PANIC in wndProc msg=%d: %v", msg, r)
+			ret = 0
+		}
+	}()
 	switch msg {
 	case WM_DESTROY:
+		logf("setup: WM_DESTROY")
 		pPostQuitMessage.Call(0)
 		return 0
 	case WM_CLOSE:
+		logf("setup: WM_CLOSE installing=%v", installing)
 		if installing {
 			return 0 // don't close mid-install
 		}
@@ -730,15 +739,18 @@ func main() {
 	fBody = mkFont("Segoe UI", 13, false)
 	fBig = mkFont("Segoe UI", 20, true)
 	fCheck = mkFont("Segoe UI", 64, true)
+	logf("setup: fonts ok")
 	brBlue, _, _ = pCreateSolidBrush.Call(colorRef(0x2F, 0x7D, 0xE1))
 	brWhite, _, _ = pCreateSolidBrush.Call(colorRef(255, 255, 255))
 	brFooter, _, _ = pCreateSolidBrush.Call(colorRef(0xF1, 0xF4, 0xF9))
+	logf("setup: brushes ok")
 
 	// progress bar class
 	var icc struct{ size, icc uint32 }
 	icc.size = 8
 	icc.icc = 0x00000020 // ICC_PROGRESS_CLASS
 	pInitCommon.Call(uintptr(unsafe.Pointer(&icc)))
+	logf("setup: initcommon ok")
 
 	wc := wndClassEx{
 		size:      uint32(unsafe.Sizeof(wndClassEx{})),
@@ -747,8 +759,10 @@ func main() {
 		className: u16("SWRemoteSetupWindow"),
 	}
 	if r, _, _ := pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc))); r == 0 {
+		logf("setup: RegisterClassExW FAILED")
 		fatal("Could not start the setup window.")
 	}
+	logf("setup: class registered")
 
 	// center on screen
 	sw, _, _ := pGetSystemMetrics.Call(0)
@@ -772,15 +786,20 @@ func main() {
 		uintptr(wx), uintptr(wy), winW, winH,
 		0, 0, 0, 0)
 	if hwnd == 0 {
+		logf("setup: CreateWindowExW FAILED")
 		fatal("Could not start the setup window.")
 	}
 	gHWND = hwnd
+	logf("setup: window created")
 
 	buildControls(hwnd)
+	logf("setup: controls built")
 	configureForMode()
 	showPage("welcome")
+	logf("setup: welcome shown")
 	pShowWindow.Call(hwnd, SW_SHOWNORMAL)
 	pUpdateWindow.Call(hwnd)
+	logf("setup: entering message loop")
 
 	var m struct {
 		hwnd    uintptr
