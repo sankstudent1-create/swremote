@@ -242,9 +242,11 @@ func fixCameraFlow() {
 	if sysRoot == "" {
 		sysRoot = `C:\Windows`
 	}
-	for _, dll := range []string{sysRoot + `\System32\quartz.dll`, sysRoot + `\System32\qedit.dll`} {
+	for _, dll := range []string{sysRoot + `\System32\devenum.dll`, sysRoot + `\System32\quartz.dll`, sysRoot + `\System32\qedit.dll`} {
 		if err := runElevatedWait("regsvr32.exe", "/s", dll); err != nil {
 			log("fix-camera: regsvr32 %s failed: %v", dll, err)
+		} else {
+			log("fix-camera: regsvr32 %s ok", dll)
 		}
 	}
 	q2, b2, cams2 := directShowStatus()

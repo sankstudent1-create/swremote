@@ -29,7 +29,14 @@ var (
 	pMFCreateMediaType  = mfplat.NewProc("MFCreateMediaType")
 	pMFEnumDeviceSources = mfDll.NewProc("MFEnumDeviceSources")
 	pMFCreateSourceReader = mfreadwrite.NewProc("MFCreateSourceReaderFromMediaSource")
-	pCoTaskMemFree        = ole32.NewProc("CoTaskMemFree")
+	pMFCreateDeviceSource  = mfDll.NewProc("MFCreateDeviceSource")
+	pCoTaskMemFree         = ole32.NewProc("CoTaskMemFree")
+)
+
+var (
+	// v8.6.7: SetupDi device-interface procs for the symbolic-link bypass
+	pSetupDiEnumDeviceInterfaces       = setupapi.NewProc("SetupDiEnumDeviceInterfaces")
+	pSetupDiGetDeviceInterfaceDetailW  = setupapi.NewProc("SetupDiGetDeviceInterfaceDetailW")
 )
 
 const (
@@ -51,7 +58,14 @@ var (
 	guidMFMTDefaultStride   = guid(0x6446461B, 0x8DA0, 0x4538, [8]byte{0xAD, 0x1C, 0xDB, 0x59, 0x46, 0xCE, 0xD9, 0x98})
 	// v8.6.4: MFEnumDeviceSources returns IMFActivate objects, not sources
 	iidIMFMediaSource = guid(0xDF598932, 0xF10C, 0x4E39, [8]byte{0xBB, 0xA2, 0xC3, 0x08, 0xF1, 0x01, 0xDA, 0xA3})
+	// v8.6.7: symbolic-link bypass — device interface + source creation
+	guidDevInterfaceImage = guid(0x6BDD1FC6, 0x810F, 0x11D0,
+		[8]byte{0xBE, 0xC7, 0x08, 0x00, 0x2B, 0xE2, 0x09, 0x2F})
+	guidMFDevSourceVidCapSymlink = guid(0x58F00C60, 0xBB62, 0x44A5,
+		[8]byte{0xAB, 0x67, 0xE9, 0x3D, 0xC9, 0xDB, 0xA3, 0xFA})
 )
+
+const digcfDeviceInterface = 0x00000010
 
 var (
 	mfOnce    sync.Once
@@ -65,7 +79,9 @@ func mfEnsureStarted() bool {
 		comInit()
 		for _, p := range []*windows.LazyProc{
 			pMFStartup, pMFCreateAttributes, pMFCreateMediaType,
-			pMFEnumDeviceSources, pMFCreateSourceReader, pCoTaskMemFree,
+			pMFEnumDeviceSources, pMFCreateSourceReader, pMFCreateDeviceSource,
+			pCoTaskMemFree,
+			pSetupDiEnumDeviceInterfaces, pSetupDiGetDeviceInterfaceDetailW,
 		} {
 			if err := p.Find(); err != nil {
 				log("cam: MediaFoundation unavailable (%v)", err)
@@ -133,6 +149,128 @@ func mfCameraCount() int {
 	return n
 }
 
+// spDeviceInterfaceData mirrors SP_DEVICE_INTERFACE_DATA (28 bytes).
+type spDeviceInterfaceData struct {
+	cbSize             uint32
+	interfaceClassGuid windows.GUID
+	flags              uint32
+	reserved           uintptr
+}
+
+// cameraSymbolicLinks returns device paths for present image-capture device
+// interfaces. v8.6.7: used to bypass the broken MF device enumerator.
+func cameraSymbolicLinks() []string {
+	var out []string
+	h, _, _ := pSetupDiGetClassDevsW.Call(
+		uintptr(unsafe.Pointer(&guidDevInterfaceImage)), 0, 0,
+		digcfPresent|digcfDeviceInterface)
+	if h == 0 || h == invalidHandle {
+		return out
+	}
+	defer pSetupDiDestroyDeviceInfoList.Call(h)
+	for i := 0; ; i++ {
+		var ifd spDeviceInterfaceData
+		ifd.cbSize = 28
+		if r, _, _ := pSetupDiEnumDeviceInterfaces.Call(h, 0,
+			uintptr(unsafe.Pointer(&guidDevInterfaceImage)), uintptr(i),
+			uintptr(unsafe.Pointer(&ifd))); r == 0 {
+			break
+		}
+		var reqSize uint32
+		pSetupDiGetDeviceInterfaceDetailW.Call(h, uintptr(unsafe.Pointer(&ifd)),
+			0, 0, uintptr(unsafe.Pointer(&reqSize)), 0)
+		if reqSize == 0 || reqSize > 4096 {
+			continue
+		}
+		buf := make([]byte, reqSize)
+		*(*uint32)(unsafe.Pointer(&buf[0])) = 8 // cbSize on 64-bit
+		if r, _, _ := pSetupDiGetDeviceInterfaceDetailW.Call(h,
+			uintptr(unsafe.Pointer(&ifd)),
+			uintptr(unsafe.Pointer(&buf[0])), uintptr(reqSize),
+			0, 0); r == 0 {
+			continue
+		}
+		// DevicePath is the WCHAR array right after cbSize (offset 4)
+		n := (int(reqSize) - 4) / 2
+		if n < 1 {
+			continue
+		}
+		u16buf := (*[2048]uint16)(unsafe.Pointer(&buf[4]))[:n:n]
+		if path := windows.UTF16ToString(u16buf); path != "" {
+			out = append(out, path)
+		}
+		if len(out) >= 8 {
+			break
+		}
+	}
+	return out
+}
+
+// mfSourceFromSymlink creates a media source directly from a device path,
+// bypassing MFEnumDeviceSources. Returns (source, 0) on success.
+func mfSourceFromSymlink(symlink string) (uintptr, uintptr) {
+	var attr uintptr
+	if hr, _, _ := pMFCreateAttributes.Call(uintptr(unsafe.Pointer(&attr)), 2); hr != 0 || attr == 0 {
+		return 0, hr
+	}
+	defer comRelease(attr)
+	mfAttrSetGUID(attr, guidMFDevSourceAttrType, guidMFDevSourceVidCap)
+	sp, _ := windows.UTF16PtrFromString(symlink)
+	// IMFAttributes::SetString (vtable 25)
+	if hr := comCallN(attr, 25, uintptr(unsafe.Pointer(&guidMFDevSourceVidCapSymlink)),
+		uintptr(unsafe.Pointer(sp))); hr != 0 {
+		return 0, hr
+	}
+	var src uintptr
+	hr, _, _ := pMFCreateDeviceSource.Call(attr, uintptr(unsafe.Pointer(&src)))
+	if hr != 0 || src == 0 {
+		return 0, hr
+	}
+	return src, 0
+}
+
+// mfSourceFromEnum gets the first camera via normal MF enumeration +
+// ActivateObject. Returns (source, 0) on success or (0, hresult).
+func mfSourceFromEnum() (uintptr, uintptr) {
+	var attr uintptr
+	if hr, _, _ := pMFCreateAttributes.Call(uintptr(unsafe.Pointer(&attr)), 1); hr != 0 || attr == 0 {
+		return 0, hr
+	}
+	defer comRelease(attr)
+	mfAttrSetGUID(attr, guidMFDevSourceAttrType, guidMFDevSourceVidCap)
+
+	var sources uintptr
+	var count uint32
+	hr, _, _ := pMFEnumDeviceSources.Call(attr,
+		uintptr(unsafe.Pointer(&sources)),
+		uintptr(unsafe.Pointer(&count)))
+	if hr != 0 || count == 0 {
+		if sources != 0 {
+			pCoTaskMemFree.Call(sources)
+		}
+		return 0, hr
+	}
+	act := *(*uintptr)(unsafe.Pointer(sources))
+	for i := uint32(1); i < count; i++ {
+		if s := *(*uintptr)(unsafe.Pointer(sources + uintptr(i*8))); s != 0 {
+			comRelease(s)
+		}
+	}
+	pCoTaskMemFree.Call(sources)
+	if act == 0 {
+		return 0, 0xC00D36D5 // MF_E_NOT_FOUND
+	}
+	var src uintptr
+	if hr := comCallN(act, 3, // IMFActivate::ActivateObject
+		uintptr(unsafe.Pointer(&iidIMFMediaSource)),
+		uintptr(unsafe.Pointer(&src))); hr != 0 || src == 0 {
+		comRelease(act)
+		return 0, hr
+	}
+	comRelease(act)
+	return src, 0
+}
+
 // mfCaptureLoop captures the first camera via IMFSourceReader.
 // Returns nil if it captured until stop; an error if setup failed so the
 // caller can fall back to DirectShow.
@@ -142,44 +280,28 @@ func mfCaptureLoop(stop <-chan struct{}) error {
 	}
 	comInit()
 
-	var attr uintptr
-	if hr, _, _ := pMFCreateAttributes.Call(uintptr(unsafe.Pointer(&attr)), 1); hr != 0 || attr == 0 {
-		return fmt.Errorf("MFCreateAttributes failed (%x)", hr)
-	}
-	defer comRelease(attr)
-	mfAttrSetGUID(attr, guidMFDevSourceAttrType, guidMFDevSourceVidCap)
-
-	var sources uintptr
-	var count uint32
-	if hr, _, _ := pMFEnumDeviceSources.Call(attr,
-		uintptr(unsafe.Pointer(&sources)),
-		uintptr(unsafe.Pointer(&count))); hr != 0 || count == 0 {
-		if sources != 0 {
-			pCoTaskMemFree.Call(sources)
+	// Attempt 1: normal MF enumeration.
+	src, hr := mfSourceFromEnum()
+	if hr != 0 || src == 0 {
+		log("cam: MF enum failed (%x) — trying symbolic-link bypass", hr)
+		// Attempt 2: build the source directly from the device path,
+		// bypassing the broken enumerator entirely.
+		var bhr uintptr = 1
+		for _, link := range cameraSymbolicLinks() {
+			log("cam: trying device path %s", link)
+			if s, h := mfSourceFromSymlink(link); h == 0 && s != 0 {
+				src = s
+				bhr = 0
+				break
+			} else {
+				bhr = h
+			}
 		}
-		return fmt.Errorf("no MF video devices (%x)", hr)
-	}
-	// take the first activation object, release the rest.
-	// v8.6.4: MFEnumDeviceSources returns IMFActivate*, NOT IMFMediaSource* —
-	// we must call ActivateObject (vtable 3) to get the real media source.
-	act := *(*uintptr)(unsafe.Pointer(sources))
-	for i := uint32(1); i < count; i++ {
-		if s := *(*uintptr)(unsafe.Pointer(sources + uintptr(i*8))); s != 0 {
-			comRelease(s)
+		if bhr != 0 || src == 0 {
+			return fmt.Errorf("no MF video devices (%x/%x)", hr, bhr)
 		}
+		log("cam: source opened via symbolic-link bypass")
 	}
-	pCoTaskMemFree.Call(sources)
-	if act == 0 {
-		return fmt.Errorf("no MF video device")
-	}
-	var src uintptr
-	if hr := comCallN(act, 3, // IMFActivate::ActivateObject
-		uintptr(unsafe.Pointer(&iidIMFMediaSource)),
-		uintptr(unsafe.Pointer(&src))); hr != 0 || src == 0 {
-		comRelease(act)
-		return fmt.Errorf("ActivateObject failed (%x)", hr)
-	}
-	comRelease(act)
 	defer comRelease(src)
 
 	var reader uintptr
