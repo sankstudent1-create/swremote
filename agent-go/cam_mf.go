@@ -49,6 +49,8 @@ var (
 	guidMFMTSubtype         = guid(0xF7E34C9A, 0x42E8, 0x4714, [8]byte{0xB7, 0x4B, 0xAA, 0x6B, 0x67, 0x33, 0x6E, 0xCC})
 	guidMFMTFrameSize       = guid(0x1652C33D, 0xD6B2, 0x4019, [8]byte{0xB8, 0x34, 0xF4, 0x75, 0x84, 0x1E, 0xDA, 0xA9})
 	guidMFMTDefaultStride   = guid(0x6446461B, 0x8DA0, 0x4538, [8]byte{0xAD, 0x1C, 0xDB, 0x59, 0x46, 0xCE, 0xD9, 0x98})
+	// v8.6.4: MFEnumDeviceSources returns IMFActivate objects, not sources
+	iidIMFMediaSource = guid(0xDF598932, 0xF10C, 0x4E39, [8]byte{0xBB, 0xA2, 0xC3, 0x08, 0xF1, 0x01, 0xDA, 0xA3})
 )
 
 var (
@@ -84,24 +86,26 @@ func mfAttrSetGUID(attr uintptr, key, val windows.GUID) uintptr {
 	return comCallN(attr, 24, uintptr(unsafe.Pointer(&key)), uintptr(unsafe.Pointer(&val)))
 }
 
-// mfCameraCount returns how many video-capture devices MediaFoundation sees.
-func mfCameraCount() int {
-	if !mfEnsureStarted() {
-		return 0
-	}
+// mfEnumCount enumerates MF device sources. With vidcap=true it asks for
+// video-capture devices; with false it enumerates everything (used to test
+// whether the enumerator itself is broken).
+func mfEnumCount(vidcap bool) (int, uintptr) {
 	comInit()
 	var attr uintptr
 	if hr, _, _ := pMFCreateAttributes.Call(uintptr(unsafe.Pointer(&attr)), 1); hr != 0 || attr == 0 {
-		return 0
+		return 0, hr
 	}
 	defer comRelease(attr)
-	mfAttrSetGUID(attr, guidMFDevSourceAttrType, guidMFDevSourceVidCap)
+	if vidcap {
+		mfAttrSetGUID(attr, guidMFDevSourceAttrType, guidMFDevSourceVidCap)
+	}
 	var sources uintptr
 	var count uint32
-	if hr, _, _ := pMFEnumDeviceSources.Call(attr,
+	hr, _, _ := pMFEnumDeviceSources.Call(attr,
 		uintptr(unsafe.Pointer(&sources)),
-		uintptr(unsafe.Pointer(&count))); hr != 0 {
-		return 0
+		uintptr(unsafe.Pointer(&count)))
+	if hr != 0 {
+		return 0, hr
 	}
 	defer pCoTaskMemFree.Call(sources)
 	for i := uint32(0); i < count; i++ {
@@ -109,7 +113,24 @@ func mfCameraCount() int {
 			comRelease(src)
 		}
 	}
-	return int(count)
+	return int(count), 0
+}
+
+// mfCameraCount returns how many video-capture devices MediaFoundation sees.
+func mfCameraCount() int {
+	if !mfEnsureStarted() {
+		return 0
+	}
+	n, hr := mfEnumCount(true)
+	if hr != 0 {
+		// v8.6.4: the VIDCAP enumeration itself failed (seen: c00d36e6).
+		// Try an unfiltered enumeration to learn whether the enumerator
+		// is broken or there are simply no video devices.
+		n2, hr2 := mfEnumCount(false)
+		log("cam: MF VIDCAP enum failed (%x); unfiltered enum: %d device(s) (%x)", hr, n2, hr2)
+		return 0
+	}
+	return n
 }
 
 // mfCaptureLoop captures the first camera via IMFSourceReader.
@@ -138,17 +159,27 @@ func mfCaptureLoop(stop <-chan struct{}) error {
 		}
 		return fmt.Errorf("no MF video devices (%x)", hr)
 	}
-	// take the first source, release the rest
-	src := *(*uintptr)(unsafe.Pointer(sources))
+	// take the first activation object, release the rest.
+	// v8.6.4: MFEnumDeviceSources returns IMFActivate*, NOT IMFMediaSource* —
+	// we must call ActivateObject (vtable 3) to get the real media source.
+	act := *(*uintptr)(unsafe.Pointer(sources))
 	for i := uint32(1); i < count; i++ {
 		if s := *(*uintptr)(unsafe.Pointer(sources + uintptr(i*8))); s != 0 {
 			comRelease(s)
 		}
 	}
 	pCoTaskMemFree.Call(sources)
-	if src == 0 {
+	if act == 0 {
 		return fmt.Errorf("no MF video device")
 	}
+	var src uintptr
+	if hr := comCallN(act, 3, // IMFActivate::ActivateObject
+		uintptr(unsafe.Pointer(&iidIMFMediaSource)),
+		uintptr(unsafe.Pointer(&src))); hr != 0 || src == 0 {
+		comRelease(act)
+		return fmt.Errorf("ActivateObject failed (%x)", hr)
+	}
+	comRelease(act)
 	defer comRelease(src)
 
 	var reader uintptr

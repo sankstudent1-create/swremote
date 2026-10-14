@@ -13,6 +13,7 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 )
 
 var (
@@ -37,8 +38,10 @@ var guidDevClassCamera = guid(0xCA3E7AB9, 0xB4C3, 0x4AE6,
 
 const (
 	digcfPresent      = 0x00000002
+	digcfAllClasses   = 0x00000004
 	spdrpFriendlyName = 12
 	spdrpDeviceDesc   = 0
+	spdrpClassGuid    = 8 // v8.6.4: which setup class a device lives in
 	dnHasProblem      = 0x00000400
 	invalidHandle     = ^uintptr(0)
 )
@@ -134,6 +137,72 @@ func enumCameraDevices() []camDevice {
 	return out
 }
 
+// scanAllCameraLike lists present devices in EVERY setup class whose name
+// looks like a camera. v8.6.4: the Camera app works but neither the Camera
+// class nor MF enumeration finds the device, so stop guessing classes and
+// look at everything.
+func scanAllCameraLike() []camDevice {
+	var out []camDevice
+	h, _, _ := pSetupDiGetClassDevsW.Call(0, 0, 0, digcfPresent|digcfAllClasses)
+	if h == 0 || h == invalidHandle {
+		return out
+	}
+	defer pSetupDiDestroyDeviceInfoList.Call(h)
+	for i := 0; ; i++ {
+		var did spDevInfoData
+		did.cbSize = uint32(unsafe.Sizeof(did))
+		if r, _, _ := pSetupDiEnumDeviceInfo.Call(h, uintptr(i), uintptr(unsafe.Pointer(&did))); r == 0 {
+			break
+		}
+		name := devProp(h, &did, spdrpFriendlyName)
+		if name == "" {
+			name = devProp(h, &did, spdrpDeviceDesc)
+		}
+		ln := strings.ToLower(name)
+		if !strings.Contains(ln, "cam") && !strings.Contains(ln, "video") && !strings.Contains(ln, "web") {
+			continue
+		}
+		class := devProp(h, &did, spdrpClassGuid)
+		var status, problem uint32
+		var pc uint32
+		if cr, _, _ := pCMGetDevNodeStatus.Call(
+			uintptr(unsafe.Pointer(&status)),
+			uintptr(unsafe.Pointer(&problem)),
+			uintptr(did.devInst), 0); cr == 0 && status&dnHasProblem != 0 {
+			pc = problem
+		}
+		out = append(out, camDevice{name: name + "  [" + class + "]", problem: pc})
+		if len(out) >= 16 {
+			break
+		}
+	}
+	return out
+}
+
+// webcamConsent reads Windows' camera privacy switches (best effort).
+// The Store Camera app can work while desktop apps are blocked — that
+// mismatch is exactly what we're seeing.
+func webcamConsent() string {
+	out := "unknown"
+	if k, err := registry.OpenKey(registry.CURRENT_USER,
+		`SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\webcam`,
+		registry.QUERY_VALUE); err == nil {
+		if v, _, err := k.GetStringValue("Value"); err == nil {
+			out = "global=" + v
+		}
+		k.Close()
+	}
+	if k, err := registry.OpenKey(registry.CURRENT_USER,
+		`SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\webcam\NonPackaged`,
+		registry.QUERY_VALUE); err == nil {
+		if v, _, err := k.GetStringValue("Value"); err == nil {
+			out += " desktop=" + v
+		}
+		k.Close()
+	}
+	return out
+}
+
 func devProp(h uintptr, did *spDevInfoData, prop uint32) string {
 	var buf [512]uint16
 	var reqSize, dataType uint32
@@ -161,9 +230,23 @@ func cameraDeviceReport() string {
 	}
 	if len(devs) == 0 {
 		sb.WriteString("Camera hardware: none detected by Windows.\n")
-		sb.WriteString("\nIf this PC has a camera, it may be turned off in BIOS/UEFI, " +
-			"by a function key (look for a camera icon on the F-keys), " +
-			"or by a physical privacy switch/shutter.")
+		// v8.6.4: the Camera app works, so scan EVERY class before concluding
+		if all := scanAllCameraLike(); len(all) > 0 {
+			sb.WriteString("\nCamera-like devices found outside the camera classes:\n")
+			for _, d := range all {
+				if d.problem == 0 {
+					fmt.Fprintf(&sb, "• %s — working\n", d.name)
+				} else {
+					fmt.Fprintf(&sb, "• %s — fault (Code %d)\n", d.name, d.problem)
+				}
+			}
+		} else {
+			sb.WriteString("\nNo camera-like device in ANY device class.\n")
+		}
+		fmt.Fprintf(&sb, "\nCamera privacy (this user): %s\n", webcamConsent())
+		sb.WriteString("\nIf the Store Camera app works but nothing is listed above, " +
+			"check Settings → Privacy & security → Camera → " +
+			"\"Let desktop apps access your camera\" — SWRemote is a desktop app.")
 		return sb.String()
 	}
 	fmt.Fprintf(&sb, "Camera hardware: %d device(s)\n", len(devs))
