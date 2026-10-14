@@ -68,41 +68,96 @@ func wakeStatus() (string, bool) {
 		return "✓ Ready — you can wake this PC from the website", true
 	}
 	if strings.Contains(s, "STOPPED") {
-		return "Installed but stopped — start it in Services", true
+		return "Installed but stopped — restarting…", true
 	}
 	return "Status unknown", true
 }
 
+// lastWakeElevated throttles UAC prompts when the service needs admin to start.
+var lastWakeElevated time.Time
+
+// ensureWakeRunning keeps the wake-up service alive: if it is installed but
+// stopped, start it (with one UAC prompt per hour at most when admin is needed).
+func ensureWakeRunning() {
+	out, err := scHidden("query", "SWRemoteService").Output()
+	if err != nil {
+		return // not installed
+	}
+	s := string(out)
+	if strings.Contains(s, "RUNNING") || !strings.Contains(s, "STOPPED") {
+		return
+	}
+	if _, err := scHidden("start", "SWRemoteService").Output(); err == nil {
+		log("wake: service was stopped — started it")
+		return
+	}
+	if time.Since(lastWakeElevated) > time.Hour {
+		lastWakeElevated = time.Now()
+		log("wake: service needs admin to start — requesting elevation")
+		_ = runElevated("sc", "start", "SWRemoteService")
+	}
+}
+
 func installWakeService() string {
-	// install the service — find SWRemote-Service.exe locally or download it
+	// v8.5.0: install or repair the wake-up service and make sure it RUNS —
+	// refresh the binary, set auto-start + restart-on-crash, then start it
+	// (elevated via UAC when the agent isn't admin).
 	exe, _ := os.Executable()
 	dir := filepath.Dir(exe)
 	svcExe := filepath.Join(dir, "SWRemote-Service.exe")
-	if _, err := os.Stat(svcExe); err != nil {
-		// not bundled — download from the relay (v8.2.1)
-		svcExe = filepath.Join(dir, "SWRemote-Service.exe")
-		if dlErr := downloadFile(serverHTTPBase()+"/download/service", svcExe); dlErr != nil {
+	// stop first so the exe isn't locked while we refresh it
+	_ = scHidden("stop", "SWRemoteService").Run()
+	time.Sleep(500 * time.Millisecond)
+	// always refresh the service binary so it matches the relay's build
+	if dlErr := downloadFile(serverHTTPBase()+"/download/service", svcExe); dlErr != nil {
+		if _, st := os.Stat(svcExe); st != nil {
 			return "Could not get service file: " + dlErr.Error()
 		}
+		log("wake: service download failed, keeping existing binary: %v", dlErr)
+	} else {
+		log("wake: service binary refreshed")
 	}
 	binPath := `"` + svcExe + `"`
-	// Try normal install first
-	out, err := scHidden("create", "SWRemoteService", "binPath=", binPath, "start=", "auto", "DisplayName=", "SWRemote Service").CombinedOutput()
-	if err != nil {
-		errStr := strings.TrimSpace(string(out))
-		// Access denied / OpenSCManager failed = need admin. Retry elevated via UAC.
-		if strings.Contains(errStr, "Access") || strings.Contains(errStr, "OpenSCManager") || strings.Contains(errStr, "denied") {
-			if elevErr := runElevated("sc", "create", "SWRemoteService", "binPath=", binPath, "start=", "auto", "DisplayName=", "SWRemote Service"); elevErr != nil {
-				return "Install needs administrator approval — " + elevErr.Error()
+	// create if missing
+	if out, err := scHidden("query", "SWRemoteService").Output(); err != nil || !strings.Contains(string(out), "SERVICE_NAME") {
+		out, err := scHidden("create", "SWRemoteService", "binPath=", binPath, "start=", "auto", "DisplayName=", "SWRemote Service").CombinedOutput()
+		if err != nil {
+			errStr := strings.TrimSpace(string(out))
+			// Access denied / OpenSCManager failed = need admin. Retry elevated via UAC.
+			if strings.Contains(errStr, "Access") || strings.Contains(errStr, "OpenSCManager") || strings.Contains(errStr, "denied") {
+				if elevErr := runElevated("sc", "create", "SWRemoteService", "binPath=", binPath, "start=", "auto", "DisplayName=", "SWRemote Service"); elevErr != nil {
+					return "Install needs administrator approval — " + elevErr.Error()
+				}
+				// elevated install launched; configure recovery + start elevated too
+				runElevated("sc", "failure", "SWRemoteService", "reset=", "86400", "actions=", "restart/60000/restart/60000/restart/60000")
+				runElevated("sc", "start", "SWRemoteService")
+				return "✓ Wake-up service install requested — approve the Windows prompt"
 			}
-			// elevated install launched; now try to start (also needs admin, so elevate that too)
-			runElevated("sc", "start", "SWRemoteService")
-			return "✓ Wake-up service install requested — approve the Windows prompt"
+			return "Install failed: " + errStr
 		}
-		return "Install failed: " + errStr
+		log("wake: service created")
 	}
+	// bulletproof it: auto-start + restart if it ever crashes
+	_, _ = scHidden("config", "SWRemoteService", "start=", "auto").Output()
+	if out, err := scHidden("failure", "SWRemoteService", "reset=", "86400",
+		"actions=", "restart/60000/restart/60000/restart/60000").CombinedOutput(); err != nil {
+		_ = runElevated("sc", "failure", "SWRemoteService", "reset=", "86400",
+			"actions=", "restart/60000/restart/60000/restart/60000")
+		_ = out
+	}
+	_, _ = scHidden("description", "SWRemoteService",
+		"Keeps this PC reachable from your SWRemote dashboard and starts the agent on demand.").Output()
+	// start it
 	if out, err := scHidden("start", "SWRemoteService").CombinedOutput(); err != nil {
-		return "Installed but could not start: " + strings.TrimSpace(string(out))
+		errStr := strings.TrimSpace(string(out))
+		if strings.Contains(errStr, "1056") || strings.Contains(strings.ToLower(errStr), "already") {
+			return "✓ Wake-up service installed and running"
+		}
+		if strings.Contains(errStr, "Access") || strings.Contains(errStr, "denied") {
+			_ = runElevated("sc", "start", "SWRemoteService")
+			return "✓ Wake-up service ready — approve the Windows prompt to start it"
+		}
+		return "Installed but could not start: " + errStr
 	}
 	return "✓ Wake-up service installed and running"
 }
@@ -110,6 +165,7 @@ func installWakeService() string {
 func refreshWakeStatus() {
 	go func() {
 		for {
+			ensureWakeRunning() // v8.5.0: restart it if it stopped
 			s, installed := wakeStatus()
 			if gCtl[ctlWakeVal] != 0 {
 				pSetWindowTextW.Call(gCtl[ctlWakeVal], uintptr(unsafe.Pointer(u16(s))))

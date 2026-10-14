@@ -18,11 +18,17 @@ var setupPS1 string
 //go:embed SWRemote-Agent.exe
 var agentExe []byte
 
+//go:embed SWRemote-Service.exe
+var svcExe []byte
+
 //go:embed install-art.png
 var installArt []byte
 
 //go:embed logo-mark.png
 var logoMark []byte
+
+// appVersion is overridden at build time: -ldflags "-X main.appVersion=x.y.z"
+var appVersion = "0.0.0"
 
 var (
 	user32       = syscall.NewLazyDLL("user32.dll")
@@ -47,10 +53,11 @@ func main() {
 	defer os.RemoveAll(tmp)
 
 	files := map[string][]byte{
-		"setup.ps1":          []byte(setupPS1),
-		"SWRemote-Agent.exe": agentExe,
-		"install-art.png":    installArt,
-		"logo-mark.png":      logoMark,
+		"setup.ps1":            []byte(setupPS1),
+		"SWRemote-Agent.exe":   agentExe,
+		"SWRemote-Service.exe": svcExe,
+		"install-art.png":      installArt,
+		"logo-mark.png":        logoMark,
 	}
 	for name, data := range files {
 		if name == "setup.ps1" {
@@ -73,7 +80,8 @@ func main() {
 		fatal("SWRemote Setup", "Windows PowerShell was not found on this PC.\nSWRemote Setup needs it to run.")
 	}
 
-	args := []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(tmp, "setup.ps1")}
+	args := []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", filepath.Join(tmp, "setup.ps1"),
+		"-AppVersion", appVersion}
 	if uninstall {
 		args = append(args, "-Uninstall")
 	}

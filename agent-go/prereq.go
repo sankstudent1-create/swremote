@@ -233,8 +233,14 @@ func fixCameraFlow() {
 		guiSetStatus("Camera repaired.", true)
 		msgBox("SWRemote", "Camera components repaired.", MB_ICONINFORMATION)
 	} else {
+		// v8.5.0: don't guess — read the exact fault from Device Manager's database
 		runPrereqCheck()
-		guiSetStatus("Camera still failing — see agent.log", false)
-		msgBox("SWRemote", "The repair did not fix it. The camera driver itself may be missing — check Device Manager.", MB_ICONERROR)
+		guiSetStatus("Camera still failing — diagnosis ready", false)
+		detail := cameraDeviceReport()
+		log("fix-camera diagnosis:\n%s", detail)
+		if msgBoxYesNo("SWRemote — Camera diagnosis",
+			"The automatic repair did not fix it. Here is exactly what Windows reports:\n\n"+detail+"\n\nOpen Device Manager now?") {
+			openDeviceManager()
+		}
 	}
 }

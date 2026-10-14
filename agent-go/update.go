@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -172,12 +173,33 @@ func applyUpdate(newExe string) error {
 	return nil
 }
 
+// stopDeleteService removes the wake-up service (used by uninstall).
+func stopDeleteService() {
+	hide := func(args ...string) string {
+		cmd := exec.Command("sc", args...)
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		out, _ := cmd.CombinedOutput()
+		return string(out)
+	}
+	hide("stop", "SWRemoteService")
+	time.Sleep(500 * time.Millisecond)
+	out := hide("delete", "SWRemoteService")
+	if strings.Contains(out, "Access") || strings.Contains(out, "denied") {
+		// needs admin — one UAC prompt during uninstall is expected
+		_ = runElevated("sc", "stop", "SWRemoteService")
+		time.Sleep(500 * time.Millisecond)
+		_ = runElevated("sc", "delete", "SWRemoteService")
+	}
+}
+
 // doUninstall removes shortcuts, autostart, registry entries and the
 // installed files, then deletes itself. Invoked as: SWRemote-Agent.exe --uninstall
 func doUninstall() {
 	if !msgBoxYesNo("Uninstall SWRemote", "Remove SWRemote from this PC?\n\nYour ID and settings file will also be deleted.") {
 		return
 	}
+	// v8.5.0: remove the wake-up service as well
+	stopDeleteService()
 	home, _ := os.UserHomeDir()
 	appdata := os.Getenv("APPDATA")
 	os.Remove(filepath.Join(home, "Desktop", "SWRemote.lnk"))
@@ -209,58 +231,106 @@ func doUninstall() {
 }
 
 // autoUpdateCheck runs silently in the background: shortly after startup
-// (and every 6h after), it checks for a newer version and prompts once.
+// (and every 6h after), it checks for a newer version and installs it
+// automatically — no prompts, no manual downloads. v8.5.0 made updates
+// fully silent: a live call is never dropped for an update (it installs
+// when the call ends) and failures are logged and retried later.
 func autoUpdateCheck() {
 	time.Sleep(60 * time.Second)
-	prompted := ""
 	for {
-		if info, err := fetchVersion(); err == nil {
-			if isNewer(appVersion, info.Version) && prompted != info.Version {
-				prompted = info.Version
-				guiSetUpdateBtn("\u2b06 Update available (v"+info.Version+")", true)
-				if updateRunning.Swap(true) {
-					continue
-				}
-				go runUpdateFlow()
-			}
-		}
+		checkAndUpdateSilently(false)
 		time.Sleep(6 * time.Hour)
 	}
 }
 
-func runUpdateFlow() {
+// pendingUpdate holds a downloaded update waiting for a call to end.
+var (
+	pendingUpdate   string
+	pendingUpdateMu sync.Mutex
+)
+
+func checkAndUpdateSilently(manual bool) {
+	if updateRunning.Swap(true) {
+		return
+	}
 	defer updateRunning.Store(false)
-	guiSetUpdateBtn("Checking…", false)
 	info, err := fetchVersion()
 	if err != nil {
-		guiSetUpdateBtn("Check for Updates", true)
-		guiSetStatus("Update check failed: "+err.Error(), false)
+		log("update check failed: %v", err)
+		if manual {
+			guiSetStatus("Update check failed: "+err.Error(), false)
+		}
 		return
 	}
 	if !isNewer(appVersion, info.Version) {
-		guiSetUpdateBtn("Check for Updates", true)
-		msgBox("SWRemote", "You're on the latest version (v"+appVersion+").", MB_ICONINFORMATION)
+		if manual {
+			msgBox("SWRemote", "You're on the latest version (v"+appVersion+").", MB_ICONINFORMATION)
+		}
 		return
 	}
-	if !msgBoxYesNo("SWRemote Update",
-		"Version v"+info.Version+" is available.\n\n"+info.Notes+"\n\nUpdate now?") {
-		guiSetUpdateBtn("Check for Updates", true)
-		return
-	}
-	guiSetUpdateBtn("Downloading…", false)
+	log("update: v%s available — downloading silently", info.Version)
+	guiSetUpdateBtn("Downloading v"+info.Version+"…", false)
 	guiSetProgress(0)
 	tmp, err := downloadUpdate(info.URL)
 	guiSetProgress(-1)
 	if err != nil {
+		log("update download failed: %v", err)
 		guiSetUpdateBtn("Check for Updates", true)
-		guiSetStatus("Download failed: "+err.Error(), false)
+		guiSetStatus("Update download failed — will retry later", false)
 		return
 	}
-	guiSetUpdateBtn("Installing…", false)
-	guiSetStatus("Installing update — SWRemote will restart…", true)
+	log("update: v%s downloaded", info.Version)
+	// never drop a live call for an update — install when the call ends
+	callMu.Lock()
+	active := callActive
+	callMu.Unlock()
+	if active {
+		pendingUpdateMu.Lock()
+		if pendingUpdate != "" {
+			os.Remove(pendingUpdate)
+		}
+		pendingUpdate = tmp
+		pendingUpdateMu.Unlock()
+		guiSetUpdateBtn("Update ready — installs after call", false)
+		guiSetStatus("Update v"+info.Version+" downloaded — installs when the call ends.", true)
+		log("update: call active, installing after the call")
+		return
+	}
+	installUpdate(tmp, info.Version)
+}
+
+func installUpdate(tmp, ver string) {
+	guiSetUpdateBtn("Installing v"+ver+"…", false)
+	guiSetStatus("Installing update v"+ver+" — SWRemote will restart…", true)
+	log("update: installing v%s", ver)
 	if err := applyUpdate(tmp); err != nil {
 		os.Remove(tmp)
 		guiSetUpdateBtn("Check for Updates", true)
 		guiSetStatus("Update failed: "+err.Error(), false)
+		log("update: install failed: %v", err)
 	}
+	// applyUpdate exits the process on success — we never return from it
+}
+
+// runUpdateFlow is the manual "Check for Updates" button — same silent flow.
+func runUpdateFlow() {
+	checkAndUpdateSilently(true)
+}
+
+// installPendingUpdate installs an update that was deferred until a call ended.
+func installPendingUpdate() {
+	pendingUpdateMu.Lock()
+	pu := pendingUpdate
+	pendingUpdate = ""
+	pendingUpdateMu.Unlock()
+	if pu == "" {
+		return
+	}
+	go func() {
+		ver := ""
+		if info, err := fetchVersion(); err == nil {
+			ver = info.Version
+		}
+		installUpdate(pu, ver)
+	}()
 }

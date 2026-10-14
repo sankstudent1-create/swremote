@@ -1,6 +1,6 @@
 # SWRemote Setup — WPF installer wizard (install / update / uninstall)
-# Run: powershell -ExecutionPolicy Bypass -File setup.ps1 [-Uninstall]
-param([switch]$Uninstall)
+# Run: powershell -ExecutionPolicy Bypass -File setup.ps1 [-Uninstall] [-AppVersion x.y.z]
+param([switch]$Uninstall, [string]$AppVersion = "")
 
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName System.Windows.Forms
@@ -8,7 +8,7 @@ Add-Type -AssemblyName System.Drawing
 
 $AppName    = "SWRemote"
 $Publisher  = "SWInfoSystems"
-$Version    = "3.1.0"
+$Version    = $(if ($AppVersion) { $AppVersion } else { "3.1.0" })
 $ExeName    = "SWRemote-Agent.exe"
 $InstallDir = Join-Path $env:LOCALAPPDATA "SWRemote"
 $SrcExe     = Join-Path $PSScriptRoot $ExeName
@@ -66,7 +66,7 @@ $IsUpdate   = (Test-Path (Join-Path $InstallDir $ExeName)) -and (-not $Uninstall
           <Border Background="#E9F1FD" CornerRadius="12" Padding="16" Margin="0,22,0,0">
             <StackPanel>
               <TextBlock Text="What gets installed" FontWeight="Bold" FontSize="13" Foreground="#1F5FC0"/>
-              <TextBlock Text="• SWRemote agent — shares this PC's screen&#x0a;• Start Menu &amp; desktop shortcuts&#x0a;• Optional: start automatically with Windows&#x0a;• No admin rights needed" FontSize="13" Foreground="#3C4C66" Margin="0,8,0,0" LineHeight="22"/>
+              <TextBlock Text="• SWRemote agent — shares this PC's screen&#x0a;• Wake-up service — wake this PC from your dashboard (one admin approval)&#x0a;• Start Menu &amp; desktop shortcuts&#x0a;• Optional: start automatically with Windows" FontSize="13" Foreground="#3C4C66" Margin="0,8,0,0" LineHeight="22"/>
             </StackPanel>
           </Border>
         </StackPanel>
@@ -189,16 +189,18 @@ function Install-SWRemote($dir, $desktop, $startmenu, $startup) {
 
   Set-Progress 84 "Installing background service…"
   # v8.0: SWRemote Service — always-connected, enables remote wake from the website
+  # v8.5: the service exe is embedded in the installer; set auto-start + restart-on-crash
   $svcExe = Join-Path $dir "SWRemote-Service.exe"
   $svcSrc = Join-Path (Split-Path $SrcExe -Parent) "SWRemote-Service.exe"
   if (Test-Path $svcSrc) {
     Copy-Item -Path $svcSrc -Destination $svcExe -Force
-    & sc.exe stop SWRemoteService 2>$null | Out-Null
-    & sc.exe delete SWRemoteService 2>$null | Out-Null
+    & sc.exe stop SWRemoteService 2>&1 | Out-Null
+    & sc.exe delete SWRemoteService 2>&1 | Out-Null
     Start-Sleep -Milliseconds 500
-    & sc.exe create SWRemoteService binPath= "`"$svcExe`"" start= auto DisplayName= "SWRemote Service" | Out-Null
-    & sc.exe description SWRemoteService "Keeps this PC reachable from your SWRemote dashboard and starts the agent on demand." | Out-Null
-    & sc.exe start SWRemoteService 2>$null | Out-Null
+    & sc.exe create SWRemoteService binPath= "`"$svcExe`"" start= auto DisplayName= "SWRemote Service" 2>&1 | Out-Null
+    & sc.exe description SWRemoteService "Keeps this PC reachable from your SWRemote dashboard and starts the agent on demand." 2>&1 | Out-Null
+    & sc.exe failure SWRemoteService reset= 86400 actions= restart/60000/restart/60000/restart/60000 2>&1 | Out-Null
+    & sc.exe start SWRemoteService 2>&1 | Out-Null
   }
 
   Set-Progress 90 "Registering uninstaller…"
@@ -287,7 +289,7 @@ if ($Uninstall) {
   (& $find "WelcomeText").Text = "SWRemote is already installed on this PC. This will update it to v$Version — your ID and PIN stay the same."
   $BtnNext.Content = "Update"
 } else {
-  (& $find "WelcomeText").Text = "This will install the SWRemote agent on this PC so you can share your screen and receive remote help. No admin rights needed, takes less than a minute."
+  (& $find "WelcomeText").Text = "This will install SWRemote on this PC as a proper app — agent, wake-up service, shortcuts and uninstaller — so you can share your screen and receive remote help. Takes less than a minute."
   (& $find "TxtPath").Text = $InstallDir
 }
 

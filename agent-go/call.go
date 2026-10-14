@@ -120,6 +120,7 @@ func onCallEnd() {
 		stopPCCapture()
 		guiSetStatus("Online — waiting for viewers…", true)
 		notify("SWRemote call", "Call ended")
+		installPendingUpdate() // v8.5.0: update deferred until the call ended
 	}
 }
 
