@@ -68,16 +68,43 @@ func wakeStatus() (string, bool) {
 		return "✓ Ready — you can wake this PC from the website", true
 	}
 	if strings.Contains(s, "STOPPED") {
-		return "Installed but stopped — restarting…", true
+		if wakeUACRecent() {
+			return "Stopped — waiting for admin approval", true
+		}
+		return "Stopped — restarting…", true
 	}
 	return "Status unknown", true
 }
 
-// lastWakeElevated throttles UAC prompts when the service needs admin to start.
-var lastWakeElevated time.Time
+// wakeUACMarker records when we last asked for admin (UAC) for the service.
+// v8.5.1: file-based so it survives restarts — previously an in-memory
+// throttle reset on every launch and the user got a prompt per restart.
+func wakeUACMarkerPath() string {
+	if la := os.Getenv("LOCALAPPDATA"); la != "" {
+		return filepath.Join(la, "SWRemote", "wake_uac.txt")
+	}
+	return "wake_uac.txt"
+}
+
+func wakeUACRecent() bool {
+	b, err := os.ReadFile(wakeUACMarkerPath())
+	if err != nil {
+		return false
+	}
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(string(b)))
+	if err != nil {
+		return false
+	}
+	return time.Since(t) < 24*time.Hour
+}
+
+func markWakeUAC() {
+	_ = os.MkdirAll(filepath.Dir(wakeUACMarkerPath()), 0755)
+	_ = os.WriteFile(wakeUACMarkerPath(), []byte(time.Now().Format(time.RFC3339)), 0644)
+}
 
 // ensureWakeRunning keeps the wake-up service alive: if it is installed but
-// stopped, start it (with one UAC prompt per hour at most when admin is needed).
+// stopped, start it (with one UAC prompt per day at most when admin is needed).
 func ensureWakeRunning() {
 	out, err := scHidden("query", "SWRemoteService").Output()
 	if err != nil {
@@ -91,10 +118,15 @@ func ensureWakeRunning() {
 		log("wake: service was stopped — started it")
 		return
 	}
-	if time.Since(lastWakeElevated) > time.Hour {
-		lastWakeElevated = time.Now()
-		log("wake: service needs admin to start — requesting elevation")
+	// needs admin: explain first (so the prompt isn't a mystery), then ask
+	// via UAC — at most once a day to avoid nagging.
+	if !wakeUACRecent() {
+		log("wake: service needs admin to start — requesting elevation (once a day at most)")
+		guiSetStatus("Starting wake-up service — please approve the Windows admin prompt…", false)
 		_ = runElevated("sc", "start", "SWRemoteService")
+		markWakeUAC()
+	} else {
+		log("wake: service still stopped (admin approval pending)")
 	}
 }
 
