@@ -123,27 +123,34 @@ func audioOutOK() bool {
 func runPrereqCheck() {
 	ed := windowsEdition()
 	nEd := windowsIsNEdition()
-	q, b, cams := directShowStatus()
+	q, b, dsCams := directShowStatus()
+	mfCams := mfCameraCount() // v8.6.0: the path the Camera app uses
+	cams := mfCams
+	if dsCams > cams {
+		cams = dsCams
+	}
 	mic, spk := audioInOK(), audioOutOK()
 	log("prereq: Windows edition=%s (N=%v)", ed, nEd)
-	log("prereq: DirectShow quartz.dll=%v captureBuilder=%v cameras=%d", q, b, cams)
+	log("prereq: DirectShow quartz.dll=%v captureBuilder=%v dsCams=%d mfCams=%d", q, b, dsCams, mfCams)
 	log("prereq: mic devices=%v speaker devices=%v", mic, spk)
 
+	// camera works if MediaFoundation sees it, or legacy DirectShow does
+	camOK := mfCams > 0 || (q && b && dsCams > 0)
 	var summary string
 	switch {
+	case cams > 0:
+		summary = fmt.Sprintf("OK — %d camera(s)", cams)
 	case !q || !b:
 		if nEd {
 			summary = "needs Media Feature Pack"
 		} else {
-			summary = "DirectShow broken — use Fix camera"
+			summary = "camera software broken — use Fix camera"
 		}
-	case cams == 0:
-		summary = "no camera found"
 	default:
-		summary = fmt.Sprintf("OK — %d camera(s)", cams)
+		summary = "no camera found"
 	}
 	setCamStatus(summary)
-	if !q || !b {
+	if !camOK {
 		log("prereq: camera WILL FAIL until repaired — press 'Fix camera' in the agent window")
 	}
 }

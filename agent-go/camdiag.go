@@ -29,6 +29,12 @@ var (
 var guidDevClassImage = guid(0x6BDD1FC6, 0x810F, 0x11D0,
 	[8]byte{0xBE, 0xC7, 0x08, 0x00, 0x2B, 0xE2, 0x09, 0x2F})
 
+// guidDevClassCamera is the "Camera" device setup class (Windows 10+).
+// v8.6.0: modern laptop webcams live here, NOT under the still-image class —
+// checking only IMAGE wrongly reported "no camera hardware".
+var guidDevClassCamera = guid(0xCA3E7AB9, 0xB4C3, 0x4AE6,
+	[8]byte{0x8B, 0x17, 0x8E, 0xAF, 0xD3, 0xBB, 0x2F, 0xBD})
+
 const (
 	digcfPresent      = 0x00000002
 	spdrpFriendlyName = 12
@@ -81,42 +87,49 @@ type camDevice struct {
 	problem uint32 // 0 = no problem reported
 }
 
-// enumCameraDevices lists present imaging devices with their problem codes.
+// enumCameraDevices lists present imaging/camera devices with problem codes.
+// v8.6.0: checks BOTH the still-image class and the Camera class.
 func enumCameraDevices() []camDevice {
 	var out []camDevice
-	h, _, _ := pSetupDiGetClassDevsW.Call(
-		uintptr(unsafe.Pointer(&guidDevClassImage)), 0, 0, digcfPresent)
-	if h == 0 || h == invalidHandle {
-		return out
-	}
-	defer pSetupDiDestroyDeviceInfoList.Call(h)
-
-	for i := 0; ; i++ {
-		var did spDevInfoData
-		did.cbSize = uint32(unsafe.Sizeof(did))
-		r, _, _ := pSetupDiEnumDeviceInfo.Call(h, uintptr(i), uintptr(unsafe.Pointer(&did)))
-		if r == 0 {
-			break
+	seen := map[string]bool{}
+	for _, classGuid := range []windows.GUID{guidDevClassImage, guidDevClassCamera} {
+		h, _, _ := pSetupDiGetClassDevsW.Call(
+			uintptr(unsafe.Pointer(&classGuid)), 0, 0, digcfPresent)
+		if h == 0 || h == invalidHandle {
+			continue
 		}
-		name := devProp(h, &did, spdrpFriendlyName)
-		if name == "" {
-			name = devProp(h, &did, spdrpDeviceDesc)
+		for i := 0; ; i++ {
+			var did spDevInfoData
+			did.cbSize = uint32(unsafe.Sizeof(did))
+			r, _, _ := pSetupDiEnumDeviceInfo.Call(h, uintptr(i), uintptr(unsafe.Pointer(&did)))
+			if r == 0 {
+				break
+			}
+			name := devProp(h, &did, spdrpFriendlyName)
+			if name == "" {
+				name = devProp(h, &did, spdrpDeviceDesc)
+			}
+			if name == "" {
+				name = "Unknown camera device"
+			}
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			var status, problem uint32
+			var pc uint32
+			if cr, _, _ := pCMGetDevNodeStatus.Call(
+				uintptr(unsafe.Pointer(&status)),
+				uintptr(unsafe.Pointer(&problem)),
+				uintptr(did.devInst), 0); cr == 0 && status&dnHasProblem != 0 {
+				pc = problem
+			}
+			out = append(out, camDevice{name: name, problem: pc})
+			if len(out) >= 16 {
+				break
+			}
 		}
-		if name == "" {
-			name = "Unknown camera device"
-		}
-		var status, problem uint32
-		var pc uint32
-		if cr, _, _ := pCMGetDevNodeStatus.Call(
-			uintptr(unsafe.Pointer(&status)),
-			uintptr(unsafe.Pointer(&problem)),
-			uintptr(did.devInst), 0); cr == 0 && status&dnHasProblem != 0 {
-			pc = problem
-		}
-		out = append(out, camDevice{name: name, problem: pc})
-		if len(out) >= 16 {
-			break
-		}
+		pSetupDiDestroyDeviceInfoList.Call(h)
 	}
 	return out
 }

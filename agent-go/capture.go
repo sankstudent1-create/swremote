@@ -331,7 +331,22 @@ var (
 	iidICaptureGraphBuilder2 = guid(0x93E5A4E0, 0x2D50, 0x11D1, [8]byte{0xB3, 0x43, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x98})
 )
 
+// camCaptureLoop: MediaFoundation first (the modern path — what the Windows
+// Camera app uses; works with Frame Server cameras and doesn't need the
+// legacy DirectShow registry), DirectShow as the legacy fallback.
 func camCaptureLoop(stop <-chan struct{}) {
+	defer func() {
+		if r := recover(); r != nil {
+			log("cam capture panic: %v", r)
+		}
+	}()
+	if err := mfCaptureLoop(stop); err != nil {
+		log("cam: MediaFoundation unavailable (%v) — trying DirectShow", err)
+		camCaptureLoopDS(stop)
+	}
+}
+
+func camCaptureLoopDS(stop <-chan struct{}) {
 	defer func() {
 		if r := recover(); r != nil {
 			log("cam capture panic: %v", r)
