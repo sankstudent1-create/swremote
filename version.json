@@ -1,1 +1,1 @@
-{"notes": "v8.6.5: Setup.exe redesigned \u2014 gradient header with monogram, option cards with descriptions, live step checklist during install, owner-drawn primary button, painted finish badge.", "url": "https://swremote-relay.onrender.com/download/agent", "version": "8.6.5"}
+{"notes": "v8.6.6: camera diagnosis now reports the DirectShow enumerator HRESULT (empty vs broken), the Frame Server kill-switch value, and uses the corrected Camera setup-class GUID from a real machine.", "url": "https://swremote-relay.onrender.com/download/agent", "version": "8.6.6"}

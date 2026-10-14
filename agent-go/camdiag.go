@@ -31,10 +31,10 @@ var guidDevClassImage = guid(0x6BDD1FC6, 0x810F, 0x11D0,
 	[8]byte{0xBE, 0xC7, 0x08, 0x00, 0x2B, 0xE2, 0x09, 0x2F})
 
 // guidDevClassCamera is the "Camera" device setup class (Windows 10+).
-// v8.6.0: modern laptop webcams live here, NOT under the still-image class —
-// checking only IMAGE wrongly reported "no camera hardware".
+// v8.6.6: corrected to the empirical value from a real machine
+// ({ca3e7ab9-b4c3-4ae6-8251-579ef933890f}); the earlier guess was wrong.
 var guidDevClassCamera = guid(0xCA3E7AB9, 0xB4C3, 0x4AE6,
-	[8]byte{0x8B, 0x17, 0x8E, 0xAF, 0xD3, 0xBB, 0x2F, 0xBD})
+	[8]byte{0x82, 0x51, 0x57, 0x9E, 0xF9, 0x33, 0x89, 0x0F})
 
 const (
 	digcfPresent      = 0x00000002
@@ -203,6 +203,23 @@ func webcamConsent() string {
 	return out
 }
 
+// frameServerMode reads the Frame Server kill-switch. v8.6.6: some privacy
+// tools set EnableFrameServerMode=0, which breaks MF camera enumeration for
+// desktop apps while the Store Camera app keeps working.
+func frameServerMode() string {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE,
+		`SOFTWARE\Microsoft\Windows Media Foundation\Platform`, registry.QUERY_VALUE)
+	if err != nil {
+		return "key missing"
+	}
+	defer k.Close()
+	v, _, err := k.GetIntegerValue("EnableFrameServerMode")
+	if err != nil {
+		return "not set (default: on)"
+	}
+	return fmt.Sprintf("EnableFrameServerMode=%d", v)
+}
+
 func devProp(h uintptr, did *spDevInfoData, prop uint32) string {
 	var buf [512]uint16
 	var reqSize, dataType uint32
@@ -221,6 +238,7 @@ func devProp(h uintptr, did *spDevInfoData, prop uint32) string {
 // Windows reports about cameras.
 func cameraDeviceReport() string {
 	q, b, _ := directShowStatus()
+	_, dsEnumHR := countCamerasHR()
 	devs := enumCameraDevices()
 	var sb strings.Builder
 	if q && b {
@@ -228,6 +246,8 @@ func cameraDeviceReport() string {
 	} else {
 		sb.WriteString("Camera software (DirectShow): BROKEN\n")
 	}
+	fmt.Fprintf(&sb, "DirectShow video enumerator: %x (0=ok, 1=empty, other=broken)\n", dsEnumHR)
+	fmt.Fprintf(&sb, "Frame Server: %s\n", frameServerMode())
 	if len(devs) == 0 {
 		sb.WriteString("Camera hardware: none detected by Windows.\n")
 		// v8.6.4: the Camera app works, so scan EVERY class before concluding

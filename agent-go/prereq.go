@@ -77,17 +77,29 @@ func directShowStatus() (quartzOK, builderOK bool, cams int) {
 
 // countCameras enumerates video input devices via the System Device Enumerator.
 func countCameras() int {
+	n, _ := countCamerasHR()
+	return n
+}
+
+// countCamerasHR also returns the raw HRESULT: 0 = enumerator worked,
+// 1 (S_FALSE) = enumerator fine but no video devices registered,
+// anything else = the enumerator itself is broken.
+func countCamerasHR() (int, uintptr) {
 	comInit()
 	devEnum, hr := coCreate(clsidSystemDeviceEnum, iidICreateDevEnum)
 	if hr != 0 {
-		return 0
+		return 0, hr
 	}
 	defer comRelease(devEnum)
 	var enumMon uintptr
 	// ICreateDevEnum::CreateClassEnumerator(CLSID_VideoInputDeviceCategory)
-	if hr := comCallN(devEnum, 3, uintptr(unsafe.Pointer(&clsidVideoInputCategory)),
-		uintptr(unsafe.Pointer(&enumMon)), 0); hr != 0 || enumMon == 0 {
-		return 0
+	hr = comCallN(devEnum, 3, uintptr(unsafe.Pointer(&clsidVideoInputCategory)),
+		uintptr(unsafe.Pointer(&enumMon)), 0)
+	if hr != 0 {
+		return 0, hr
+	}
+	if enumMon == 0 {
+		return 0, 1 // S_FALSE: no devices
 	}
 	defer comRelease(enumMon)
 	n := 0
@@ -105,7 +117,7 @@ func countCameras() int {
 			break
 		}
 	}
-	return n
+	return n, 0
 }
 
 func audioInOK() bool {
@@ -124,14 +136,15 @@ func runPrereqCheck() {
 	ed := windowsEdition()
 	nEd := windowsIsNEdition()
 	q, b, dsCams := directShowStatus()
-	mfCams := mfCameraCount() // v8.6.0: the path the Camera app uses
+	_, dsEnumHR := countCamerasHR() // v8.6.6: distinguish empty vs broken
+	mfCams := mfCameraCount()       // v8.6.0: the path the Camera app uses
 	cams := mfCams
 	if dsCams > cams {
 		cams = dsCams
 	}
 	mic, spk := audioInOK(), audioOutOK()
 	log("prereq: Windows edition=%s (N=%v)", ed, nEd)
-	log("prereq: DirectShow quartz.dll=%v captureBuilder=%v dsCams=%d mfCams=%d", q, b, dsCams, mfCams)
+	log("prereq: DirectShow quartz.dll=%v captureBuilder=%v dsCams=%d dsEnumHR=%x mfCams=%d", q, b, dsCams, dsEnumHR, mfCams)
 	log("prereq: mic devices=%v speaker devices=%v", mic, spk)
 
 	// camera works if MediaFoundation sees it, or legacy DirectShow does
