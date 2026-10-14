@@ -440,6 +440,10 @@ func main() {
 		return
 	}
 	initLog()
+	if !acquireSingleInstance() {
+		log("another instance is already running, exiting")
+		return
+	}
 	cfg = loadConfig()
 	log("ID %s, server %s", cfg.DeviceID, cfg.Server)
 	runPrereqCheck() // v8.4.0: verify camera/mic components, log what's missing

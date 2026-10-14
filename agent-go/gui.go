@@ -698,20 +698,29 @@ func getAutoRun() bool {
 	return err == nil
 }
 
-// build and run the main window; blocks until quit
-func runGUI() {
-	// single instance
+// singleInstanceMutex is held for the life of the process.
+var singleInstanceMutex uintptr
+
+// acquireSingleInstance returns false (after telling the user) if another
+// copy is already running. v8.6.1: called at startup, BEFORE the network
+// loop and updater start — previously a duplicate instance connected with
+// the same device ID and downloaded updates before noticing it was a dup.
+func acquireSingleInstance() bool {
 	mname := u16("SWRemote-Agent-Mutex")
 	h, _, _ := pCreateMutexW.Call(0, 0, uintptr(unsafe.Pointer(mname)))
-	if h != 0 {
-		if windows.GetLastError() == windows.ERROR_ALREADY_EXISTS {
-			t, _ := windows.UTF16PtrFromString("SWRemote")
-			m, _ := windows.UTF16PtrFromString("SWRemote is already running.\nLook for its window on the taskbar.")
-			pMessageBoxW.Call(0, uintptr(unsafe.Pointer(m)), uintptr(unsafe.Pointer(t)), 64)
-			return
-		}
+	if h != 0 && windows.GetLastError() == windows.ERROR_ALREADY_EXISTS {
+		t, _ := windows.UTF16PtrFromString("SWRemote")
+		m, _ := windows.UTF16PtrFromString("SWRemote is already running.\nLook for its window on the taskbar.")
+		pMessageBoxW.Call(0, uintptr(unsafe.Pointer(m)), uintptr(unsafe.Pointer(t)), 64)
+		return false
 	}
+	singleInstanceMutex = h
+	_ = singleInstanceMutex
+	return true
+}
 
+// build and run the main window; blocks until quit
+func runGUI() {
 	icc := iccEx{size: 8, icc: 0x00000002 /* ICC_PROGRESS_CLASS */}
 	pInitCommon.Call(uintptr(unsafe.Pointer(&icc)))
 

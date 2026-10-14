@@ -139,12 +139,18 @@ func applyUpdate(newExe string) error {
 	if err != nil {
 		return err
 	}
-	// pre-flight: make sure we can write to the destination dir
-	if f, err := os.OpenFile(cur, os.O_WRONLY, 0644); err != nil {
-		return fmt.Errorf("cannot replace running exe (need admin?): %v", err)
-	} else {
-		f.Close()
+	// pre-flight: make sure we can write to the install folder.
+	// v8.6.1: the old check opened the RUNNING exe for writing to test this —
+	// Windows locks a running process's image file, so that test ALWAYS
+	// failed and no update could ever install ("being used by another
+	// process"). Testing the folder is the correct check.
+	dir := filepath.Dir(cur)
+	tf, err := os.CreateTemp(dir, "swremote-writetest-*.tmp")
+	if err != nil {
+		return fmt.Errorf("cannot write to install folder (need admin?): %v", err)
 	}
+	tf.Close()
+	os.Remove(tf.Name())
 	bat := filepath.Join(os.TempDir(), "swremote-update.bat")
 	script := "@echo off\r\n" +
 		"set PID=" + strconv.Itoa(os.Getpid()) + "\r\n" +
