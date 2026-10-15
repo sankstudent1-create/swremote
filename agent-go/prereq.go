@@ -88,6 +88,7 @@ func countCamerasHR() (int, uintptr) {
 	comInit()
 	devEnum, hr := coCreate(clsidSystemDeviceEnum, iidICreateDevEnum)
 	if hr != 0 {
+		log("cam: SystemDeviceEnum CoCreate failed (%x)", hr)
 		return 0, hr
 	}
 	defer comRelease(devEnum)
@@ -96,6 +97,7 @@ func countCamerasHR() (int, uintptr) {
 	hr = comCallN(devEnum, 3, uintptr(unsafe.Pointer(&clsidVideoInputCategory)),
 		uintptr(unsafe.Pointer(&enumMon)), 0)
 	if hr != 0 {
+		log("cam: CreateClassEnumerator(video) failed (%x)", hr)
 		return 0, hr
 	}
 	if enumMon == 0 {
@@ -206,7 +208,9 @@ func runElevatedWait(exe string, args ...string) error {
 	for _, a := range args {
 		quoted = append(quoted, "'"+strings.ReplaceAll(a, "'", "''")+"'")
 	}
-	ps := fmt.Sprintf("Start-Process -FilePath '%s' -ArgumentList %s -Verb RunAs -Wait",
+	// v8.9.1: -PassThru captures the real exit code. Without it we couldn't
+	// tell whether the elevated tool actually ran (sfc once "finished" in 16s).
+	ps := fmt.Sprintf("$p = Start-Process -FilePath '%s' -ArgumentList %s -Verb RunAs -Wait -PassThru; exit $p.ExitCode",
 		strings.ReplaceAll(exe, "'", "''"), strings.Join(quoted, ","))
 	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", ps)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}

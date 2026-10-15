@@ -9,6 +9,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"unsafe"
 
@@ -248,6 +249,29 @@ func comRegCheck() string {
 	return sb.String()
 }
 
+// dllFileCheck verifies the media DLL files exist and load. v8.9.1: the
+// registry can say "registered" while the file itself is missing/corrupt —
+// CoCreateInstance then still fails with 80040154.
+func dllFileCheck() string {
+	var sb strings.Builder
+	for _, dll := range []string{"devenum.dll", "quartz.dll", "qedit.dll", "mf.dll"} {
+		path := `C:\Windows\System32\` + dll
+		fi, err := os.Stat(path)
+		if err != nil {
+			sb.WriteString(fmt.Sprintf("%s: MISSING (%v)\n", dll, err))
+			continue
+		}
+		h, err := windows.LoadLibrary(dll)
+		if err != nil {
+			sb.WriteString(fmt.Sprintf("%s: present (%d bytes) but LOAD FAILED (%v)\n", dll, fi.Size(), err))
+			continue
+		}
+		windows.FreeLibrary(h)
+		sb.WriteString(fmt.Sprintf("%s: present (%d bytes), loads OK\n", dll, fi.Size()))
+	}
+	return sb.String()
+}
+
 func devProp(h uintptr, did *spDevInfoData, prop uint32) string {
 	var buf [512]uint16
 	var reqSize, dataType uint32
@@ -277,6 +301,7 @@ func cameraDeviceReport() string {
 	fmt.Fprintf(&sb, "DirectShow video enumerator: %x (0=ok, 1=empty, other=broken)\n", dsEnumHR)
 	fmt.Fprintf(&sb, "Frame Server: %s\n", frameServerMode())
 	sb.WriteString("COM registration:\n" + comRegCheck())
+	sb.WriteString("DLL files:\n" + dllFileCheck())
 	if len(devs) == 0 {
 		sb.WriteString("Camera hardware: none detected by Windows.\n")
 		// v8.6.4: the Camera app works, so scan EVERY class before concluding

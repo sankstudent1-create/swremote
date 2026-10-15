@@ -61,6 +61,8 @@ var (
 	// v8.6.7: symbolic-link bypass — device interface + source creation
 	guidDevInterfaceImage = guid(0x6BDD1FC6, 0x810F, 0x11D0,
 		[8]byte{0xBE, 0xC7, 0x08, 0x00, 0x2B, 0xE2, 0x09, 0x2F})
+	guidDevInterfaceUSB = guid(0xA5DCBF10, 0x6530, 0x11D0,
+		[8]byte{0x90, 0x1F, 0x00, 0xC0, 0x4F, 0xB9, 0x51, 0xED})
 	guidMFDevSourceVidCapSymlink = guid(0x58F00C60, 0xBB62, 0x44A5,
 		[8]byte{0xAB, 0x67, 0xE9, 0x3D, 0xC9, 0xDB, 0xA3, 0xFA})
 )
@@ -182,10 +184,22 @@ type spDeviceInterfaceData struct {
 
 // cameraSymbolicLinks returns device paths for present image-capture device
 // interfaces. v8.6.7: used to bypass the broken MF device enumerator.
+// v8.9.1: also tries the USB device interface (some cameras only expose that).
 func cameraSymbolicLinks() []string {
 	var out []string
+	for _, ifGuid := range []windows.GUID{guidDevInterfaceImage, guidDevInterfaceUSB} {
+		out = append(out, linksForInterface(ifGuid)...)
+		if len(out) >= 8 {
+			break
+		}
+	}
+	return out
+}
+
+func linksForInterface(ifGuid windows.GUID) []string {
+	var out []string
 	h, _, _ := pSetupDiGetClassDevsW.Call(
-		uintptr(unsafe.Pointer(&guidDevInterfaceImage)), 0, 0,
+		uintptr(unsafe.Pointer(&ifGuid)), 0, 0,
 		digcfPresent|digcfDeviceInterface)
 	if h == 0 || h == invalidHandle {
 		return out
@@ -195,7 +209,7 @@ func cameraSymbolicLinks() []string {
 		var ifd spDeviceInterfaceData
 		ifd.cbSize = 28
 		if r, _, _ := pSetupDiEnumDeviceInterfaces.Call(h, 0,
-			uintptr(unsafe.Pointer(&guidDevInterfaceImage)), uintptr(i),
+			uintptr(unsafe.Pointer(&ifGuid)), uintptr(i),
 			uintptr(unsafe.Pointer(&ifd))); r == 0 {
 			break
 		}

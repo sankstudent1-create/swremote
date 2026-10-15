@@ -1,1 +1,1 @@
-{"notes": "v8.9.0: resilience. Camera demo fallback in meeting PiP; self-restart watchdog (hang detection + RegisterApplicationRestart + scheduled task, skips clean Quit); wake service fresh reinstall; Repair Windows button (sfc + DISM).", "url": "https://swremote-relay.onrender.com/download/agent", "version": "8.9.0"}
+{"notes": "v8.9.1: runElevatedWait now captures real exit codes (sfc/DISM actually run); DLL file integrity check; pinpoints 80040154 source; bypass tries USB interface too.", "url": "https://swremote-relay.onrender.com/download/agent", "version": "8.9.1"}
