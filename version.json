@@ -1,1 +1,1 @@
-{"notes": "v8.8.0: Meeting mode + premium UI. Web: new full-screen meeting (PC screen main, PC camera corner PiP, your camera tile, meeting controls). Agent: violet redesign with device profile card (monogram avatar, name, ID, status).", "url": "https://swremote-relay.onrender.com/download/agent", "version": "8.8.0"}
+{"notes": "v8.8.1: bypass probe runs at startup (no call needed); COM registration check shows whether regsvr32 actually landed.", "url": "https://swremote-relay.onrender.com/download/agent", "version": "8.8.1"}

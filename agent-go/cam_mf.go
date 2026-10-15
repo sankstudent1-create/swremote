@@ -144,9 +144,32 @@ func mfCameraCount() int {
 		// is broken or there are simply no video devices.
 		n2, hr2 := mfEnumCount(false)
 		log("cam: MF VIDCAP enum failed (%x); unfiltered enum: %d device(s) (%x)", hr, n2, hr2)
+		// v8.8.1: probe the symbolic-link bypass at startup so we know
+		// immediately (without needing a call) whether direct source
+		// creation works on this PC.
+		mfBypassProbe()
 		return 0
 	}
 	return n
+}
+
+// mfBypassProbe tries MFCreateDeviceSource via device symbolic links and
+// logs the outcome. Lightweight: creates and releases the source only.
+func mfBypassProbe() {
+	links := cameraSymbolicLinks()
+	if len(links) == 0 {
+		log("cam: bypass probe — no image device interfaces found")
+		return
+	}
+	for _, link := range links {
+		src, hr := mfSourceFromSymlink(link)
+		if hr == 0 && src != 0 {
+			comRelease(src)
+			log("cam: bypass probe — SOURCE CREATED OK via %s", link)
+			return
+		}
+		log("cam: bypass probe — %s -> %x", link, hr)
+	}
 }
 
 // spDeviceInterfaceData mirrors SP_DEVICE_INTERFACE_DATA (28 bytes).

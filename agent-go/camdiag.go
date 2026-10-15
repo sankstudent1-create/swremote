@@ -220,6 +220,34 @@ func frameServerMode() string {
 	return fmt.Sprintf("EnableFrameServerMode=%d", v)
 }
 
+// comRegCheck reports whether the critical media COM classes are actually
+// registered and where they point. v8.8.1: regsvr32 reports success but the
+// classes stay broken — this shows whether the registration landed at all.
+func comRegCheck() string {
+	classes := []struct {
+		name string
+		clsid string
+	}{
+		{"SystemDeviceEnum", "{62BE5D10-60EB-11D0-BD3B-00A0C911CE86}"},
+		{"CaptureGraphBuilder2", "{BF87B6E1-8C27-11D0-B3F2-00AA003761C5}"},
+		{"FilterGraph", "{E436EBB3-524F-11CE-9F53-0020AF0BA770}"},
+	}
+	var sb strings.Builder
+	for _, c := range classes {
+		k, err := registry.OpenKey(registry.CLASSES_ROOT,
+			`CLSID\`+c.clsid+`\InprocServer32`, registry.QUERY_VALUE)
+		if err != nil {
+			sb.WriteString(c.name + ": NOT REGISTERED\n")
+			continue
+		}
+		dll, _, _ := k.GetStringValue("")
+		threading, _, _ := k.GetStringValue("ThreadingModel")
+		k.Close()
+		sb.WriteString(fmt.Sprintf("%s: %s [%s]\n", c.name, dll, threading))
+	}
+	return sb.String()
+}
+
 func devProp(h uintptr, did *spDevInfoData, prop uint32) string {
 	var buf [512]uint16
 	var reqSize, dataType uint32
@@ -248,6 +276,7 @@ func cameraDeviceReport() string {
 	}
 	fmt.Fprintf(&sb, "DirectShow video enumerator: %x (0=ok, 1=empty, other=broken)\n", dsEnumHR)
 	fmt.Fprintf(&sb, "Frame Server: %s\n", frameServerMode())
+	sb.WriteString("COM registration:\n" + comRegCheck())
 	if len(devs) == 0 {
 		sb.WriteString("Camera hardware: none detected by Windows.\n")
 		// v8.6.4: the Camera app works, so scan EVERY class before concluding
