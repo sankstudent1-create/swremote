@@ -62,6 +62,7 @@
   #meeting-pip-local{left:12px; bottom:12px;}
   #meeting-pip-pc{right:12px; bottom:12px;}
   .meeting-pip video,.meeting-pip img{position:absolute; inset:0; width:100%; height:100%; object-fit:cover;}
+  #meeting-pc-demo{object-fit:cover;}
   .pip-off{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; color:#8fa3c2; font-size:11px; font-weight:600; text-align:center; padding:8px;}
   .pip-off span:first-child{font-size:26px;}
   #meeting-pc-avatar{width:44px; height:44px; border-radius:50%; background:linear-gradient(135deg,#7c3aed,#a78bfa); display:flex; align-items:center; justify-content:center; font-size:20px; color:#fff; font-weight:700;}
@@ -368,7 +369,8 @@
         <span id="meeting-local-mute" class="pip-mute hidden">🔇</span>
       </div>
       <div id="meeting-pip-pc" class="meeting-pip">
-        <div id="meeting-pc-off" class="pip-off"><div id="meeting-pc-avatar">💻</div><span id="meeting-pc-msg">PC camera…</span></div>
+        <img id="meeting-pc-demo" src="demo-cam.svg" alt="Demo camera">
+        <div id="meeting-pc-off" class="pip-off hidden"><div id="meeting-pc-avatar">💻</div><span id="meeting-pc-msg">PC camera…</span></div>
         <img id="meeting-pc-video" class="hidden" alt="">
         <span class="pip-label">PC camera</span>
       </div>

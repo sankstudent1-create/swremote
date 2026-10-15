@@ -145,6 +145,7 @@ const (
 	ctlCamLbl   = 125
 	ctlCamVal   = 126
 	ctlFixCam   = 127
+	ctlRepairWin = 128 // v8.9.0: sfc /scannow + DISM one-click repair
 )
 
 type wndClassExW struct {
@@ -456,7 +457,7 @@ func drawPill(hdc uintptr) {
 
 var grayLabels = map[int]bool{ctlIDLabel: true, ctlPINLabel: true, ctlLinkLbl: true, ctlClaimLbl: true, ctlViewLbl: true, ctlWakeLbl: true, ctlCamLbl: true, ctlVer: true, ctlMeta: true}
 
-var primaryBtns = map[int]bool{ctlCopyID: true, ctlNewPIN: true, ctlCopy: true, ctlCopyClaim: true, ctlWakeInstall: true, ctlUpdate: true, ctlFixCam: true}
+var primaryBtns = map[int]bool{ctlCopyID: true, ctlNewPIN: true, ctlCopy: true, ctlCopyClaim: true, ctlWakeInstall: true, ctlUpdate: true, ctlFixCam: true, ctlRepairWin: true}
 
 const WM_CTLCOLORBTN = 309
 
@@ -586,6 +587,7 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		}
 		return 0
 	case WM_TIMER:
+		heartbeatTick() // v8.9.0: watchdog heartbeat
 		refreshMeta()
 		return 0
 	case WM_COMMAND:
@@ -664,9 +666,10 @@ func onClick(id int) {
 		}
 		go runUpdateFlow()
 	case ctlWakeInstall:
-		// v8.2: install the wake-up service on demand
+		// v8.9.0: fresh reinstall — clears the stuck "waiting for admin" state
 		go func() {
-			msg := installWakeService()
+			setText(ctlWakeVal, "Reinstalling…")
+			msg := reinstallWakeService()
 			if gCtl[ctlWakeVal] != 0 {
 				pSetWindowTextW.Call(gCtl[ctlWakeVal], uintptr(unsafe.Pointer(u16(msg))))
 			}
@@ -674,7 +677,12 @@ func onClick(id int) {
 	case ctlFixCam:
 		// v8.4.0: repair/install the camera components on demand
 		go fixCameraFlow()
+	case ctlRepairWin:
+		// v8.9.0: sfc + DISM from web research — fixes broken system files
+		// when regsvr32 alone doesn't stick
+		go repairWindowsFlow()
 	case ctlQuit:
+		markQuitting() // v8.9.0: clean quit — no auto-restart
 		pPostMessageW.Call(gHWND, WM_CLOSE, 0, 0)
 	case ctlAutoRun:
 		var chk uintptr = 0
@@ -859,10 +867,11 @@ func runGUI() {
 	mkCtl("STATIC", "CAMERA", 0, 454, 492, 200, 16, ctlCamLbl, gFonts["lbl"])
 	mkCtl("STATIC", "checking…", SS_LEFT, 540, 492, 280, 16, ctlCamVal, gFonts["small"])
 	// bottom bar
-	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON|BS_FLAT, 20, 550, 170, 38, ctlUpdate, gFonts["norm"])
-	mkCtl("BUTTON", "Fix camera", BS_PUSHBUTTON|BS_FLAT, 200, 550, 150, 38, ctlFixCam, gFonts["norm"])
-	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 360, 558, 200, 24, ctlAutoRun, gFonts["norm"])
-	mkCtl("msctls_progress32", "", 0, 572, 562, 130, 14, ctlProg, 0)
+	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON|BS_FLAT, 20, 550, 150, 38, ctlUpdate, gFonts["norm"])
+	mkCtl("BUTTON", "Fix camera", BS_PUSHBUTTON|BS_FLAT, 178, 550, 130, 38, ctlFixCam, gFonts["norm"])
+	mkCtl("BUTTON", "Repair Windows", BS_PUSHBUTTON|BS_FLAT, 316, 550, 140, 38, ctlRepairWin, gFonts["norm"])
+	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 434, 558, 180, 24, ctlAutoRun, gFonts["norm"])
+	mkCtl("msctls_progress32", "", 0, 620, 562, 92, 14, ctlProg, 0)
 	pSendMessageW.Call(gCtl[ctlProg], PBM_SETRANGE32, 0, 100)
 	pShowWindow.Call(gCtl[ctlProg], 0)
 	mkCtl("BUTTON", "Quit", BS_PUSHBUTTON|BS_FLAT, 720, 550, 120, 38, ctlQuit, gFonts["norm"])
@@ -882,7 +891,7 @@ func runGUI() {
 	if cs != "" {
 		setText(ctlCamVal, cs)
 	}
-	pSetTimer.Call(hwnd, 1, 30000, 0) // refresh uptime every 30s
+	pSetTimer.Call(hwnd, 1, 5000, 0) // v8.9.0: 5s heartbeat + uptime refresh
 	pShowWindow.Call(hwnd, SW_SHOW)
 	pUpdateWindow.Call(hwnd)
 

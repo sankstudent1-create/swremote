@@ -194,6 +194,28 @@ func installWakeService() string {
 	return "✓ Wake-up service installed and running"
 }
 
+// reinstallWakeService removes a stuck/broken service install and does a
+// clean install. v8.9.0: the service can sit in "waiting for admin" forever —
+// a fresh uninstall+install clears that state.
+func reinstallWakeService() string {
+	log("wake: fresh reinstall requested")
+	_ = scHidden("stop", "SWRemoteService").Run()
+	time.Sleep(1000 * time.Millisecond)
+	if out, err := scHidden("delete", "SWRemoteService").CombinedOutput(); err != nil {
+		errStr := strings.TrimSpace(string(out))
+		if strings.Contains(errStr, "Access") || strings.Contains(errStr, "denied") {
+			_ = runElevatedWait("sc.exe", "delete", "SWRemoteService")
+			time.Sleep(1500 * time.Millisecond)
+		} else {
+			log("wake: delete: %s", errStr)
+		}
+	} else {
+		log("wake: old service deleted")
+	}
+	time.Sleep(1000 * time.Millisecond)
+	return installWakeService()
+}
+
 func refreshWakeStatus() {
 	go func() {
 		for {
@@ -202,13 +224,14 @@ func refreshWakeStatus() {
 			if gCtl[ctlWakeVal] != 0 {
 				pSetWindowTextW.Call(gCtl[ctlWakeVal], uintptr(unsafe.Pointer(u16(s))))
 			}
-			// show/hide the install button
+			// show the install/reinstall button (v8.9.0: always visible for fresh reinstalls)
 			if gCtl[ctlWakeInstall] != 0 {
-				show := uintptr(0)
-				if !installed {
-					show = 1
+				pShowWindow.Call(gCtl[ctlWakeInstall], 1)
+				lbl := "Install"
+				if installed {
+					lbl = "Reinstall"
 				}
-				pShowWindow.Call(gCtl[ctlWakeInstall], show)
+				pSetWindowTextW.Call(gCtl[ctlWakeInstall], uintptr(unsafe.Pointer(u16(lbl))))
 			}
 			time.Sleep(30 * time.Second)
 		}

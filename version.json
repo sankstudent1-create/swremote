@@ -1,1 +1,1 @@
-{"notes": "v8.8.1: bypass probe runs at startup (no call needed); COM registration check shows whether regsvr32 actually landed.", "url": "https://swremote-relay.onrender.com/download/agent", "version": "8.8.1"}
+{"notes": "v8.9.0: resilience. Camera demo fallback in meeting PiP; self-restart watchdog (hang detection + RegisterApplicationRestart + scheduled task, skips clean Quit); wake service fresh reinstall; Repair Windows button (sfc + DISM).", "url": "https://swremote-relay.onrender.com/download/agent", "version": "8.9.0"}

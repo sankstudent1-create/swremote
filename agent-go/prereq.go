@@ -168,7 +168,39 @@ func runPrereqCheck() {
 	}
 }
 
-// runElevatedWait runs exe with a UAC prompt and waits for it to finish.
+// repairWindowsFlow runs the Microsoft-recommended repair for "class not
+// registered" errors that survive regsvr32 (from web research): sfc /scannow
+// then DISM /RestoreHealth. v8.9.0. Takes 15-30 minutes, needs admin.
+func repairWindowsFlow() {
+	if !msgBoxYesNo("SWRemote — Repair Windows",
+		"This runs Windows' own repair tools:\n\n1. sfc /scannow (checks system files)\n2. DISM /RestoreHealth (repairs the Windows image)\n\nIt takes 15-30 minutes. Windows will ask for administrator permission twice.\n\nStart now?") {
+		return
+	}
+	setCamStatus("repairing Windows…")
+	guiSetStatus("Repairing Windows — approve the admin prompts…", false)
+	log("repair-windows: starting sfc /scannow")
+	if err := runElevatedWait("sfc.exe", "/scannow"); err != nil {
+		log("repair-windows: sfc failed: %v", err)
+		setCamStatus("sfc failed")
+		guiSetStatus("System file check failed — see agent.log", false)
+		msgBox("SWRemote", "Could not run sfc /scannow:\n"+err.Error(), MB_ICONERROR)
+		return
+	}
+	log("repair-windows: sfc done, starting DISM /RestoreHealth")
+	guiSetStatus("Step 2/2: repairing Windows image (DISM)…", false)
+	if err := runElevatedWait("dism.exe", "/Online", "/Cleanup-Image", "/RestoreHealth"); err != nil {
+		log("repair-windows: DISM failed: %v", err)
+		setCamStatus("DISM failed")
+		guiSetStatus("DISM repair failed — see agent.log", false)
+		msgBox("SWRemote", "Could not run DISM:\n"+err.Error(), MB_ICONERROR)
+		return
+	}
+	log("repair-windows: done — restart recommended")
+	setCamStatus("repair done — restart Windows")
+	guiSetStatus("Windows repair finished.", true)
+	msgBox("SWRemote", "Windows repair finished.\n\nPlease restart your PC — then press Fix camera once.", MB_ICONINFORMATION)
+	runPrereqCheck()
+}
 func runElevatedWait(exe string, args ...string) error {
 	quoted := make([]string, 0, len(args))
 	for _, a := range args {

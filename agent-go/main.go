@@ -439,11 +439,24 @@ func main() {
 		doUninstall()
 		return
 	}
+	// v8.9.0: --watchdog mode for the scheduled task — silently ensure the
+	// agent is running (unless the user quit it intentionally), then exit.
+	if len(os.Args) > 1 && os.Args[1] == "--watchdog" {
+		watchdogCheck()
+		return
+	}
 	initLog()
 	if !acquireSingleInstance() {
 		log("another instance is already running, exiting")
 		return
 	}
+	clearCleanQuitFlag() // we're running; a later --watchdog may restart us
+	if !wasCleanQuit() {
+		log("watchdog: previous run did not quit cleanly")
+	}
+	registerRestart() // v8.9.0: Windows restarts us on crash/hang
+	startWatchdog()   // v8.9.0: restart ourselves if the UI thread sticks
+	ensureWatchdogTask() // v8.9.0: scheduled task reopens us if killed
 	cfg = loadConfig()
 	log("ID %s, server %s", cfg.DeviceID, cfg.Server)
 	runPrereqCheck() // v8.4.0: verify camera/mic components, log what's missing

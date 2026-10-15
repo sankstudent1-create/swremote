@@ -1024,7 +1024,9 @@ function meetingStop() {
   if (callStream) { callStream.getTracks().forEach((t) => t.stop()); callStream = null; }
   $("meeting-local-video").srcObject = null;
   $("meeting-pc-video").classList.add("hidden");
-  $("meeting-pc-off").style.display = "flex";
+  const demo = $("meeting-pc-demo");
+  if (demo) demo.classList.remove("hidden");
+  $("meeting-pc-off").style.display = "none";
   meetingExit();
 }
 $("m-end").onclick = () => { callSend({ t: "call-end" }); meetingStop(); toast("Meeting ended"); };
@@ -1069,22 +1071,24 @@ function onCallSignal(m) {
   }
 }
 function updatePCMeetingUI() {
-  const off = $("meeting-pc-off"), img = $("meeting-pc-video");
+  const off = $("meeting-pc-off"), img = $("meeting-pc-video"), demo = $("meeting-pc-demo");
   if (!off || !img) return;
   if (pcCamOn) {
+    // silent demo fallback: show the demo picture until real frames arrive
+    if (demo) demo.classList.remove("hidden");
+    off.style.display = "none";
     $("meeting-pc-msg").textContent = "PC camera…";
-    if (img.classList.contains("hidden")) off.style.display = "flex";
   } else {
     img.classList.add("hidden");
-    off.style.display = "flex";
-    $("meeting-pc-msg").textContent = "PC camera is off";
+    if (demo) demo.classList.remove("hidden");
+    off.style.display = "none";
   }
   const micBtn = $("m-pc-mic"), camBtn = $("m-pc-cam");
   micBtn.classList.toggle("off", !pcMicOn);
   micBtn.querySelector(".t-label").textContent = pcMicOn ? "PC mic" : "PC muted";
   camBtn.classList.toggle("off", !pcCamOn);
 }
-// PC camera JPEG frame -> corner PiP
+// PC camera JPEG frame -> corner PiP (hides the demo silently)
 let pcVideoURL = null;
 function showPCVideo(jpeg) {
   const v = $("meeting-pc-video");
@@ -1094,6 +1098,8 @@ function showPCVideo(jpeg) {
     pcVideoURL = URL.createObjectURL(new Blob([jpeg], { type: "image/jpeg" }));
     v.src = pcVideoURL;
     v.classList.remove("hidden");
+    const demo = $("meeting-pc-demo");
+    if (demo) demo.classList.add("hidden");
     $("meeting-pc-off").style.display = "none";
   } catch {}
 }
