@@ -636,18 +636,7 @@ function handleBinary(u8) {
   if (kind === 0x07) { playPCAudio(u8.subarray(1)); return; } // PC mic PCM
 }
 
-// PC camera frame -> remote video panel
-let pcVideoURL = null;
-function showPCVideo(jpeg) {
-  const v = $("call-remote-video");
-  if (!v) return;
-  try {
-    if (pcVideoURL) URL.revokeObjectURL(pcVideoURL);
-    pcVideoURL = URL.createObjectURL(new Blob([jpeg], { type: "image/jpeg" }));
-    v.src = pcVideoURL;
-    v.classList.remove("hidden");
-  } catch {}
-}
+// (meeting showPCVideo is defined in the meeting section below)
 // PC mic PCM (8kHz mono 16-bit) -> speakers
 let pcAudioCtx = null;
 function playPCAudio(pcm) {
@@ -909,41 +898,74 @@ $("kbd-proxy").addEventListener("keydown", (e) => {
 });
 
 
-/* ---------- video call (v6.0) ---------- */
+/* ---------- meeting (v8.8, from scratch) ----------
+   Full meeting mode: PC screen stays the main stage, the PC camera appears
+   as a corner PiP, your camera as a second tile, meeting controls below. */
 let callState = "idle"; // idle | calling | incall
 let callRingTimer = null;
 let callStream = null, callMicOn = true, callCamOn = true;
 let callFrameTimer = null, callAudioCtx = null, callAudioNode = null;
+let meetingTimer = null, meetingSecs = 0;
 const isOwnerViewer = () => sbOn() && sbSignedIn();
 
-$("btn-call").onclick = () => {
-  toggleDrawer("call-panel");
-  const owner = isOwnerViewer();
-  for (const id of ["call-mute-pc", "call-cam-pc"]) {
-    $(id).classList.toggle("hidden", !owner);
-    $(id).classList.toggle("flex", owner);
+function meetingEnter() {
+  $("meeting-pips").classList.remove("hidden");
+  $("session-toolbar").classList.add("hidden");
+  $("meeting-bar").classList.remove("hidden");
+  $("btn-call").classList.add("on");
+  // meeting timer pill in the session header
+  let pill = $("meeting-timer");
+  if (!pill) {
+    pill = document.createElement("span");
+    pill.id = "meeting-timer";
+    $("sess-name").after(pill);
   }
+  pill.textContent = "Meeting 00:00";
+  meetingSecs = 0;
+  clearInterval(meetingTimer);
+  meetingTimer = setInterval(() => {
+    meetingSecs++;
+    const m = String(Math.floor(meetingSecs / 60)).padStart(2, "0");
+    const s = String(meetingSecs % 60).padStart(2, "0");
+    const el = $("meeting-timer");
+    if (el) el.textContent = "Meeting " + m + ":" + s;
+  }, 1000);
+  // PC controls only for the owner
+  const owner = isOwnerViewer();
+  $("m-pc-mic").style.display = owner ? "" : "none";
+  $("m-pc-cam").style.display = owner ? "" : "none";
+  updatePCMeetingUI();
+}
+function meetingExit() {
+  $("meeting-pips").classList.add("hidden");
+  $("session-toolbar").classList.remove("hidden");
+  $("meeting-bar").classList.add("hidden");
+  $("btn-call").classList.remove("on");
+  clearInterval(meetingTimer); meetingTimer = null;
+  const pill = $("meeting-timer");
+  if (pill) pill.remove();
+}
+
+$("btn-call").onclick = () => {
+  if (callState === "idle") meetingStart();
 };
-function callSetStatus(t) { $("call-status").textContent = t; }
 function callSend(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
 
-async function callStart() {
+async function meetingStart() {
   if (callState !== "idle") return;
   try {
     callStream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: true });
-  } catch (e) { toast("Camera/mic blocked — allow access to call."); return; }
-  $("call-local-video").srcObject = callStream;
+  } catch (e) { toast("Camera/mic blocked — allow access to join the meeting."); return; }
+  $("meeting-local-video").srcObject = callStream;
   callState = "calling";
-  $("call-start").classList.add("hidden"); $("call-end").classList.remove("hidden");
-  $("btn-call").classList.add("on");
-  callSetStatus("Ringing the PC…");
+  meetingEnter();
+  toast("Ringing the PC…");
   callSend({ t: "call-start", name: myProfile.display_name || "Guest" });
   // if the PC doesn't answer in 20s, tell the user why (old agent? offline?)
   clearTimeout(callRingTimer);
   callRingTimer = setTimeout(() => {
     if (callState === "calling") {
-      callStop();
-      callSetStatus("PC didn't answer");
+      meetingStop();
       toast("No answer — is the v7.0+ agent running on the PC?");
     }
   }, 20000);
@@ -952,7 +974,7 @@ async function callStart() {
 }
 function startCallMedia() {
   // camera frames: JPEG snapshots ~5fps as binary 0x04
-  const vid = $("call-local-video"), cv = document.createElement("canvas");
+  const vid = $("meeting-local-video"), cv = document.createElement("canvas");
   cv.width = 320; cv.height = 240;
   const cx = cv.getContext("2d");
   callFrameTimer = setInterval(() => {
@@ -993,91 +1015,113 @@ function startCallMedia() {
   } catch {}
   callSend({ t: "av-state", cam: callCamOn, mic: callMicOn });
 }
-function callStop() {
+function meetingStop() {
   callState = "idle";
   clearTimeout(callRingTimer);
   clearInterval(callFrameTimer); callFrameTimer = null;
   if (callAudioNode) { try { callAudioNode.disconnect(); } catch {} callAudioNode = null; }
   if (callAudioCtx) { try { callAudioCtx.close(); } catch {} callAudioCtx = null; }
   if (callStream) { callStream.getTracks().forEach((t) => t.stop()); callStream = null; }
-  $("call-local-video").srcObject = null;
-  $("call-start").classList.remove("hidden"); $("call-end").classList.add("hidden");
-  $("btn-call").classList.remove("on");
-  callSetStatus("Tap call to start");
+  $("meeting-local-video").srcObject = null;
+  $("meeting-pc-video").classList.add("hidden");
+  $("meeting-pc-off").style.display = "flex";
+  meetingExit();
 }
-$("call-start").onclick = callStart;
-$("call-end").onclick = () => { callSend({ t: "call-end" }); callStop(); callSetStatus("Call ended"); };
-$("call-mic").onclick = () => {
+$("m-end").onclick = () => { callSend({ t: "call-end" }); meetingStop(); toast("Meeting ended"); };
+$("m-mic").onclick = () => {
   callMicOn = !callMicOn;
-  $("call-mic").textContent = callMicOn ? "🎤 Mic" : "🔇 Muted";
+  const b = $("m-mic");
+  b.classList.toggle("off", !callMicOn);
+  b.querySelector(".t-label").textContent = callMicOn ? "Mic" : "Muted";
+  $("meeting-local-mute").classList.toggle("hidden", callMicOn);
   callSend({ t: "av-state", cam: callCamOn, mic: callMicOn });
 };
-$("call-cam").onclick = () => {
+$("m-cam").onclick = () => {
   callCamOn = !callCamOn;
-  $("call-cam").textContent = callCamOn ? "📷 Cam" : "🚫 Off";
-  $("call-local-off").classList.toggle("hidden", callCamOn);
-  $("call-local-off").classList.toggle("grid", !callCamOn);
+  const b = $("m-cam");
+  b.classList.toggle("off", !callCamOn);
+  b.querySelector(".t-label").textContent = callCamOn ? "Camera" : "Off";
+  $("meeting-local-off").classList.toggle("hidden", callCamOn);
+  $("meeting-local-video").style.visibility = callCamOn ? "visible" : "hidden";
   callSend({ t: "av-state", cam: callCamOn, mic: callMicOn });
 };
-$("call-mute-pc").onclick = () => {
+$("m-chat").onclick = () => toggleDrawer("chat-panel");
+$("m-pc-mic").onclick = () => {
   // owner viewer toggles the PC's mic
   pcMicOn = !pcMicOn;
   callSend({ t: "av-ctrl", target: "agent", mic: pcMicOn });
-  updatePCCallUI();
+  updatePCMeetingUI();
 };
-$("call-cam-pc").onclick = () => {
+$("m-pc-cam").onclick = () => {
   // owner viewer toggles the PC's camera
   pcCamOn = !pcCamOn;
   callSend({ t: "av-ctrl", target: "agent", cam: pcCamOn });
-  updatePCCallUI();
+  updatePCMeetingUI();
 };
 let pcCamOn = true, pcMicOn = true;
 function onCallSignal(m) {
-  if (m.t === "call-accept" && callState === "calling") { callState = "incall"; callSetStatus("Connected — they can see & hear you"); }
-  else if (m.t === "call-end" && callState !== "idle") { callStop(); callSetStatus("They ended the call"); toast("Call ended"); }
-  else if (m.t === "call-decline" && callState === "calling") { callStop(); callSetStatus("They declined"); }
+  if (m.t === "call-accept" && callState === "calling") { callState = "incall"; toast("Meeting connected"); }
+  else if (m.t === "call-end" && callState !== "idle") { meetingStop(); toast("They ended the meeting"); }
+  else if (m.t === "call-decline" && callState === "calling") { meetingStop(); toast("They declined"); }
   else if (m.t === "av-state" && m.side === "agent") {
     pcCamOn = m.cam !== false; pcMicOn = m.mic !== false;
-    updatePCCallUI();
+    updatePCMeetingUI();
   }
 }
-function updatePCCallUI() {
-  const pip = $("call-pip");
-  if (!pip) return;
-  const ph = pip.querySelector(".pc-cam-placeholder");
-  if (pcCamOn) { if (ph) ph.style.display = "none"; }
-  else {
-    $("call-remote-video").classList.add("hidden");
-    if (ph) { ph.style.display = "grid"; ph.querySelector(".pc-cam-msg").textContent = "PC camera is off"; }
+function updatePCMeetingUI() {
+  const off = $("meeting-pc-off"), img = $("meeting-pc-video");
+  if (!off || !img) return;
+  if (pcCamOn) {
+    $("meeting-pc-msg").textContent = "PC camera…";
+    if (img.classList.contains("hidden")) off.style.display = "flex";
+  } else {
+    img.classList.add("hidden");
+    off.style.display = "flex";
+    $("meeting-pc-msg").textContent = "PC camera is off";
   }
-  const muteBtn = $("call-mute-pc"), camBtn = $("call-cam-pc");
-  muteBtn.innerHTML = `<span>${pcMicOn ? "🔇" : "🎤"}</span><span>${pcMicOn ? "Mute PC mic" : "Unmute PC mic"}</span>`;
-  camBtn.innerHTML = `<span>📷</span><span>${pcCamOn ? "PC cam off" : "PC cam on"}</span>`;
+  const micBtn = $("m-pc-mic"), camBtn = $("m-pc-cam");
+  micBtn.classList.toggle("off", !pcMicOn);
+  micBtn.querySelector(".t-label").textContent = pcMicOn ? "PC mic" : "PC muted";
+  camBtn.classList.toggle("off", !pcCamOn);
 }
-// v8.1: make the PC PiP draggable
+// PC camera JPEG frame -> corner PiP
+let pcVideoURL = null;
+function showPCVideo(jpeg) {
+  const v = $("meeting-pc-video");
+  if (!v) return;
+  try {
+    if (pcVideoURL) URL.revokeObjectURL(pcVideoURL);
+    pcVideoURL = URL.createObjectURL(new Blob([jpeg], { type: "image/jpeg" }));
+    v.src = pcVideoURL;
+    v.classList.remove("hidden");
+    $("meeting-pc-off").style.display = "none";
+  } catch {}
+}
+// meeting PiPs are draggable
 (function() {
-  const pip = $("call-pip");
-  if (!pip) return;
-  let sx, sy, ox, oy, dragging = false;
-  pip.style.touchAction = "none";
-  pip.addEventListener("pointerdown", (e) => {
-    dragging = true; sx = e.clientX; sy = e.clientY;
-    const r = pip.getBoundingClientRect(), pr = pip.parentElement.getBoundingClientRect();
-    ox = r.left - pr.left; oy = r.top - pr.top;
-    pip.setPointerCapture(e.pointerId);
-  });
-  pip.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
-    const pr = pip.parentElement.getBoundingClientRect();
-    let nx = ox + e.clientX - sx, ny = oy + e.clientY - sy;
-    nx = Math.max(0, Math.min(nx, pr.width - pip.offsetWidth));
-    ny = Math.max(0, Math.min(ny, pr.height - pip.offsetHeight));
-    pip.style.left = nx + "px"; pip.style.top = ny + "px";
-    pip.style.right = "auto"; pip.style.bottom = "auto";
-  });
-  pip.addEventListener("pointerup", () => dragging = false);
+  for (const id of ["meeting-pip-pc", "meeting-pip-local"]) {
+    const pip = $(id);
+    if (!pip) continue;
+    let sx, sy, ox, oy, dragging = false;
+    pip.style.touchAction = "none";
+    pip.addEventListener("pointerdown", (e) => {
+      dragging = true; sx = e.clientX; sy = e.clientY;
+      const r = pip.getBoundingClientRect(), pr = pip.parentElement.getBoundingClientRect();
+      ox = r.left - pr.left; oy = r.top - pr.top;
+      pip.setPointerCapture(e.pointerId);
+    });
+    pip.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      const pr = pip.parentElement.getBoundingClientRect();
+      let nx = ox + e.clientX - sx, ny = oy + e.clientY - sy;
+      nx = Math.max(0, Math.min(nx, pr.width - pip.offsetWidth));
+      ny = Math.max(0, Math.min(ny, pr.height - pip.offsetHeight));
+      pip.style.left = nx + "px"; pip.style.top = ny + "px";
+      pip.style.right = "auto"; pip.style.bottom = "auto";
+    });
+    pip.addEventListener("pointerup", () => dragging = false);
+  }
 })();
-
 /* ---------- chat ---------- */
 $("btn-chat").onclick = () => toggleDrawer("chat-panel");
 document.querySelectorAll("[data-close]").forEach((b) => b.onclick = () => $(b.dataset.close).classList.add("hidden"));

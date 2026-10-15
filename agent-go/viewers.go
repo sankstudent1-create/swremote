@@ -159,7 +159,7 @@ func resizeAvatar(img image.Image, size int) image.Image {
 }
 
 // drawViewers paints viewer rows (avatar + name) inside the VIEWERS card.
-// Card: (12,536)-(418,680). Label at y=548. Rows start at y=576, 40px each.
+// Card: (434,318)-(840,416). Label at y=330. Rows start at y=376, 40px each.
 func drawViewers(hdc uintptr) {
 	viewersMu.Lock()
 	list := make([]viewerInfo, len(viewers))
@@ -171,12 +171,12 @@ func drawViewers(hdc uintptr) {
 
 	if len(list) == 0 {
 		pSetTextColor.Call(hdc, colorRef(0x84, 0x94, 0xab))
-		var rc = [4]int32{454, 304, 830, 330}
+		var rc = [4]int32{454, 376, 830, 402}
 		pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16("No one is watching right now."))), 0xFFFFFFFF, uintptr(unsafe.Pointer(&rc)), 0)
 		pSelectObject.Call(hdc, oldF)
 		return
 	}
-	y := int32(300)
+	y := int32(372)
 	for i, v := range list {
 		if i >= 2 {
 			break
@@ -190,7 +190,7 @@ func drawViewers(hdc uintptr) {
 			pDeleteDC.Call(memDC)
 		} else {
 			// violet initial tile
-			tileBr, _, _ := pCreateSolidBrush.Call(colorRef(0x25, 0x63, 0xeb))
+			tileBr, _, _ := pCreateSolidBrush.Call(colorRef(0x7c, 0x3a, 0xed))
 			oldBr, _, _ := pSelectObject.Call(hdc, tileBr)
 			oldPen, _, _ := pSelectObject.Call(hdc, gCardPen)
 			pRoundRect.Call(hdc, 454, uintptr(y), 490, uintptr(y+36), 18, 18)
