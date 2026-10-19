@@ -1,0 +1,1 @@
+{"description":"SW Transcode Worker — compresses TeraBox videos with ffmpeg and uploads the compact file to Telegram","license":"UNLICENSED","main":"worker.js","name":"swtranscode","scripts":{"start":"node worker.js"},"version":"1.0.0"}

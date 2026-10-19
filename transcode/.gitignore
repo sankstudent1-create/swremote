@@ -1,0 +1,4 @@
+# Built at deploy time (static ffmpeg binary) — never commit the 70MB binary.
+ffmpeg
+ffmpeg.tar.xz
+node_modules/
