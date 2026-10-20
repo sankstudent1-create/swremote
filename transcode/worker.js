@@ -313,6 +313,13 @@ const server = http.createServer(async (req, res) => {
         active,
       });
     }
+    if (req.method === "GET" && url.pathname === "/api/jobs") {
+      const list = [...jobs.values()]
+        .map(({ dlink, ndus, bot_token, ...safe }) => safe)
+        .slice(-20)
+        .reverse();
+      return json(res, 200, { ok: true, jobs: list });
+    }
     if (req.method === "GET" && url.pathname.startsWith("/api/jobs/")) {
       const job = jobs.get(url.pathname.split("/").pop());
       if (!job) return json(res, 404, { ok: false, error: "unknown job" });
