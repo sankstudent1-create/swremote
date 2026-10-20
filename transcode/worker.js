@@ -98,35 +98,6 @@ async function fetchTimeout(url, opts = {}, ms = 25000) {
   }
 }
 
-/**
- * Read a response body with an IDLE timeout: fails only if no bytes arrive
- * for `idleMs`. TeraBox throttles some connections to a slow drip — the
- * transfer is healthy as long as bytes keep coming, so a total-time cap
- * would kill good downloads (this was the "body stalled" failure).
- */
-async function readBuf(res, idleMs = 45000) {
-  if (!res.body) throw new Error("no body");
-  const reader = res.body.getReader();
-  const chunks = [];
-  let total = 0;
-  for (;;) {
-    let timer;
-    const timeout = new Promise((_, rej) => {
-      timer = setTimeout(() => rej(new Error("body stalled")), idleMs);
-    });
-    let chunk;
-    try {
-      chunk = await Promise.race([reader.read(), timeout]);
-    } finally {
-      clearTimeout(timer);
-    }
-    if (chunk.done) break;
-    chunks.push(chunk.value);
-    total += chunk.value.length;
-  }
-  return Buffer.concat(chunks, total);
-}
-
 /** True file size via 1-byte range probe (Content-Range). */
 async function probeSize(dlink, ndus) {
   const r = await fetchTimeout(
@@ -145,17 +116,29 @@ async function probeSize(dlink, ndus) {
   return size;
 }
 
-async function fetchPart(dlink, ndus, start, end, tries = 8) {
+/**
+ * Stream one byte-range into the file, RESUMING where it stopped whenever
+ * the connection stalls (aria2's "continue" behavior). Bytes already on
+ * disk are never re-fetched, so a throttled, stall-prone CDN cannot churn
+ * forever the way restart-from-zero retries did.
+ */
+async function downloadRange(fd, dlink, ndus, start, end, onBytes) {
   const want = end - start + 1;
-  let last;
-  for (let i = 0; i < tries; i++) {
+  let got = 0;
+  let attempts = 0;
+  let noProgress = 0;
+  while (got < want) {
+    if (++attempts > 60 || noProgress >= 6) {
+      throw new Error(`range ${start} stuck at ${got}/${want}`);
+    }
+    let progressed = false;
     try {
       const r = await fetchTimeout(
         dlink,
         {
           headers: {
             Cookie: `ndus=${ndus}`,
-            Range: `bytes=${start}-${end}`,
+            Range: `bytes=${start + got}-${end}`,
             "User-Agent": UA,
           },
           redirect: "follow",
@@ -164,21 +147,36 @@ async function fetchPart(dlink, ndus, start, end, tries = 8) {
       );
       if (r.status !== 206 || !r.body) {
         if (r.body) await r.body.cancel().catch(() => {});
-        throw new Error(`part ${start}-${end} -> ${r.status}`);
+        throw new Error(`range -> ${r.status}`);
       }
-      const buf = await readBuf(r, 45000);
-      if (buf.length !== want) throw new Error(`part short: ${buf.length}/${want}`);
-      return buf;
-    } catch (e) {
-      last = e;
-      await new Promise((r) => setTimeout(r, 500 * (i + 1)));
+      const reader = r.body.getReader();
+      for (;;) {
+        let timer;
+        const timeout = new Promise((_, rej) => {
+          timer = setTimeout(() => rej(new Error("body stalled")), 30000);
+        });
+        let chunk;
+        try {
+          chunk = await Promise.race([reader.read(), timeout]);
+        } finally {
+          clearTimeout(timer);
+        }
+        if (chunk.done) break;
+        fs.writeSync(fd, chunk.value, 0, chunk.value.length, start + got);
+        got += chunk.value.length;
+        progressed = true;
+        onBytes(chunk.value.length);
+      }
+    } catch {
+      // Stall / network error: loop resumes from `got` — nothing is lost.
     }
+    noProgress = progressed ? 0 : noProgress + 1;
+    if (got < want) await new Promise((r) => setTimeout(r, 400));
   }
-  throw last;
 }
 
-/** Parallel download straight to disk (positioned writes, low RAM). */
-async function downloadToFile(dlink, ndus, filePath, total) {
+/** Parallel resumable download straight to disk, with progress callback. */
+async function downloadToFile(dlink, ndus, filePath, total, onProgress) {
   const nParts = Math.min(MAX_CONCURRENT, Math.max(2, Math.ceil(total / PART_SIZE)));
   const ranges = [];
   const per = Math.ceil(total / nParts);
@@ -186,15 +184,14 @@ async function downloadToFile(dlink, ndus, filePath, total) {
 
   const fd = fs.openSync(filePath, "w");
   try {
-    // Pre-allocate so positioned writes are cheap.
     fs.ftruncateSync(fd, total);
     let done = 0;
+    const onBytes = (n) => {
+      done += n;
+      if (onProgress) onProgress(done, total);
+    };
     await Promise.all(
-      ranges.map(async ([s, e]) => {
-        const buf = await fetchPart(dlink, ndus, s, e);
-        fs.writeSync(fd, buf, 0, buf.length, s);
-        done += buf.length;
-      })
+      ranges.map(([s, e]) => downloadRange(fd, dlink, ndus, s, e, onBytes))
     );
     if (done !== total) throw new Error(`incomplete download ${done}/${total}`);
   } finally {
@@ -286,7 +283,9 @@ async function processJob(job) {
     job.status = "downloading";
     const total = await probeSize(job.dlink, job.ndus);
     if (total > 1024 * 1024 * 1024) throw new Error("file over 1 GB — refusing");
-    await downloadToFile(job.dlink, job.ndus, inPath, total);
+    await downloadToFile(job.dlink, job.ndus, inPath, total, (doneB, totB) => {
+      job.detail = `downloading ${Math.floor((doneB / totB) * 100)}%`;
+    });
 
     job.status = "compressing";
     await runFfmpeg(inPath, outPath, JOB_TIMEOUT_MS - 5 * 60 * 1000);
