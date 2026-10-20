@@ -273,6 +273,83 @@ async function tgUpload(botToken, chatId, fileName, filePath) {
   }
 }
 
+/**
+ * DIAGNOSTIC: hunt for TeraBox's own compressed stream (the fast path).
+ * Runs the logged-in share-list flow and reports — key names only, never
+ * secret values — whether sign/timestamp appear, and whether the streaming
+ * endpoint answers with an m3u8. Result lands on job.probe; it never
+ * blocks or breaks the job.
+ */
+async function probeStream(job) {
+  const out = {};
+  const headers = { "User-Agent": UA, Cookie: `ndus=${job.ndus}` };
+  try {
+    if (!job.surl) return { skip: "no surl" };
+    const pageRes = await fetchTimeout(
+      `https://www.terabox.com/wap/share/filelist?surl=${encodeURIComponent(job.surl)}`,
+      { headers },
+      20000
+    );
+    const html = await pageRes.text();
+    const scripts = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1] || "");
+    const target = scripts.find(
+      (s) => /^\s*try\s*\{\s*eval\(decodeURIComponent/.test(s) && s.includes("%22")
+    );
+    const jsToken = target ? target.split("%22")[1] : null;
+    out.jsToken = jsToken ? "yes" : "no";
+    if (!jsToken) return out;
+    const params = new URLSearchParams({
+      app_id: "250528",
+      jsToken,
+      shorturl: job.surl,
+      root: "1",
+      num: "100",
+      page: "1",
+    });
+    const lr = await fetchTimeout(`https://www.terabox.com/share/list?${params}`, { headers }, 20000);
+    const data = await lr.json().catch(() => null);
+    if (!data) return { ...out, list: "unparsable" };
+    out.listKeys = Object.keys(data).join(",");
+    out.sign = data.sign ? "yes" : "no";
+    out.timestamp = data.timestamp ? "yes" : "no";
+    const item =
+      (data.list || []).find((x) => String(x.fs_id) === String(job.fs_id)) ||
+      (data.list || [])[0];
+    if (!item) return { ...out, item: "none" };
+    out.itemKeys = Object.keys(item).join(",");
+    const base = {
+      path: item.path || "",
+      app_id: "250528",
+      clienttype: "0",
+      fid: String(item.fs_id),
+      type: "M3U8_AUTO_360",
+      web: "1",
+    };
+    const variants = [["cookie-only", base]];
+    if (data.sign && data.timestamp) {
+      variants.unshift(["with-sign", { ...base, sign: data.sign, timestamp: String(data.timestamp) }]);
+    }
+    for (const [name, q] of variants) {
+      try {
+        const sr = await fetchTimeout(
+          `https://www.terabox.com/api/streaming?${new URLSearchParams(q)}`,
+          { headers },
+          20000
+        );
+        const txt = await sr.text();
+        out[`stream_${name}`] =
+          `${sr.status} ${(sr.headers.get("content-type") || "").split(";")[0]} ` +
+          txt.slice(0, 80).replace(/\s+/g, " ");
+      } catch (e) {
+        out[`stream_${name}`] = "ERR " + String((e && e.message) || e).slice(0, 60);
+      }
+    }
+  } catch (e) {
+    out.error = String((e && e.message) || e).slice(0, 120);
+  }
+  return out;
+}
+
 async function processJob(job) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "swt-"));
   const inPath = path.join(tmpDir, "in.mp4");
@@ -280,6 +357,8 @@ async function processJob(job) {
   // Time caps live in fetchPart (30 s/part) and runFfmpeg; the whole job is
   // also bounded by Render's own limits. Secrets are scrubbed in `finally`.
   try {
+    job.status = "probing";
+    job.probe = await probeStream(job);
     job.status = "downloading";
     const total = await probeSize(job.dlink, job.ndus);
     if (total > 1024 * 1024 * 1024) throw new Error("file over 1 GB — refusing");
@@ -345,7 +424,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/transcode") {
       const b = await readJson(req);
       if (!KEY || b.key !== KEY) return json(res, 403, { ok: false, error: "bad key" });
-      const { dlink, ndus, fileName, chat_id, bot_token } = b;
+      const { dlink, ndus, fileName, chat_id, bot_token, surl, fs_id } = b;
       if (!dlink || !isTeraBoxDlink(dlink) || !ndus || !chat_id || !bot_token) {
         return json(res, 400, { ok: false, error: "missing dlink/ndus/chat_id/bot_token" });
       }
@@ -361,6 +440,8 @@ const server = http.createServer(async (req, res) => {
         fileName: String(fileName || "video.mp4").slice(0, 120),
         dlink,
         ndus,
+        surl: String(surl || ""),
+        fs_id: String(fs_id || ""),
         chat_id: String(chat_id),
         bot_token,
       };
