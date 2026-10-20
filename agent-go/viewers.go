@@ -139,7 +139,7 @@ func avatarToBitmap(path string, size int) uintptr {
 	}
 	defer pReleaseDC.Call(0, hdc)
 	bmp, _, _ := pCreateDIBitmap.Call(hdc,
-		uintptr(unsafe.Pointer(&bi[0])), 4 /*CBM_INIT*/,
+		uintptr(unsafe.Pointer(&bi[0])), 4, /*CBM_INIT*/
 		uintptr(unsafe.Pointer(&px[0])), uintptr(unsafe.Pointer(&bi[0])), 0 /*DIB_RGB_COLORS*/)
 	return bmp
 }

@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -40,12 +41,12 @@ var (
 // ---------------- WinAPI ----------------
 
 var (
-	user32           = windows.NewLazySystemDLL("user32.dll")
-	pSendInput       = user32.NewProc("SendInput")
+	user32            = windows.NewLazySystemDLL("user32.dll")
+	pSendInput        = user32.NewProc("SendInput")
 	pGetSystemMetrics = user32.NewProc("GetSystemMetrics")
-	pMessageBoxW     = user32.NewProc("MessageBoxW")
-	pLockWorkStation = user32.NewProc("LockWorkStation")
-	pGetCursorPos    = user32.NewProc("GetCursorPos")
+	pMessageBoxW      = user32.NewProc("MessageBoxW")
+	pLockWorkStation  = user32.NewProc("LockWorkStation")
+	pGetCursorPos     = user32.NewProc("GetCursorPos")
 )
 
 // needKeyframe is set when a viewer joins or asks for a full frame.
@@ -58,15 +59,15 @@ const (
 	INPUT_MOUSE    = 0
 	INPUT_KEYBOARD = 1
 
-	MOUSEEVENTF_MOVE     = 0x0001
-	MOUSEEVENTF_LEFTDOWN = 0x0002
-	MOUSEEVENTF_LEFTUP   = 0x0004
-	MOUSEEVENTF_RIGHTDOWN = 0x0008
-	MOUSEEVENTF_RIGHTUP   = 0x0010
+	MOUSEEVENTF_MOVE       = 0x0001
+	MOUSEEVENTF_LEFTDOWN   = 0x0002
+	MOUSEEVENTF_LEFTUP     = 0x0004
+	MOUSEEVENTF_RIGHTDOWN  = 0x0008
+	MOUSEEVENTF_RIGHTUP    = 0x0010
 	MOUSEEVENTF_MIDDLEDOWN = 0x0020
 	MOUSEEVENTF_MIDDLEUP   = 0x0040
-	MOUSEEVENTF_WHEEL    = 0x0800
-	MOUSEEVENTF_ABSOLUTE = 0x8000
+	MOUSEEVENTF_WHEEL      = 0x0800
+	MOUSEEVENTF_ABSOLUTE   = 0x8000
 
 	KEYEVENTF_KEYUP   = 0x0002
 	KEYEVENTF_UNICODE = 0x0004
@@ -105,7 +106,8 @@ func mouseMoveAbs(xRatio, yRatio float64) {
 	h := getSystemMetrics(SM_CYSCREEN)
 	dx := int32(xRatio * 65535)
 	dy := int32(yRatio * 65535)
-	_ = w; _ = h
+	_ = w
+	_ = h
 	mouseInput(dx, dy, 0, MOUSEEVENTF_MOVE|MOUSEEVENTF_ABSOLUTE)
 }
 
@@ -113,11 +115,23 @@ func mouseButton(which string, down bool) {
 	var flag uint32
 	switch which {
 	case "right":
-		if down { flag = MOUSEEVENTF_RIGHTDOWN } else { flag = MOUSEEVENTF_RIGHTUP }
+		if down {
+			flag = MOUSEEVENTF_RIGHTDOWN
+		} else {
+			flag = MOUSEEVENTF_RIGHTUP
+		}
 	case "middle":
-		if down { flag = MOUSEEVENTF_MIDDLEDOWN } else { flag = MOUSEEVENTF_MIDDLEUP }
+		if down {
+			flag = MOUSEEVENTF_MIDDLEDOWN
+		} else {
+			flag = MOUSEEVENTF_MIDDLEUP
+		}
 	default:
-		if down { flag = MOUSEEVENTF_LEFTDOWN } else { flag = MOUSEEVENTF_LEFTUP }
+		if down {
+			flag = MOUSEEVENTF_LEFTDOWN
+		} else {
+			flag = MOUSEEVENTF_LEFTUP
+		}
 	}
 	mouseInput(0, 0, 0, flag)
 }
@@ -133,7 +147,7 @@ var specialVK = map[string]uint16{
 	"left": 0x25, "right": 0x27, "home": 0x24, "end": 0x23,
 	"pageup": 0x21, "pagedown": 0x22, "win": 0x5B, "cmd": 0x5B,
 	"caps": 0x14,
-	"f1": 0x70, "f2": 0x71, "f3": 0x72, "f4": 0x73, "f5": 0x74, "f6": 0x75,
+	"f1":   0x70, "f2": 0x71, "f3": 0x72, "f4": 0x73, "f5": 0x74, "f6": 0x75,
 	"f7": 0x76, "f8": 0x77, "f9": 0x78, "f10": 0x79, "f11": 0x7A, "f12": 0x7B,
 }
 
@@ -184,15 +198,15 @@ func lockWorkstation() {
 // ---------------- config ----------------
 
 type Config struct {
-	Server    string `json:"server"`
-	DeviceID  string `json:"device_id"`
-	Name      string `json:"name"`
-	PIN       string `json:"pin"`
-	FPS       int    `json:"fps"`
-	Quality   int    `json:"quality"`
-	Scale     float64 `json:"scale"`
-	ClaimCode string `json:"claim_code"` // Phase 1: shown in the window, entered once in the dashboard
-	AutoRunSet bool   `json:"autorun_set"` // true once the user (or first-run default) decided about auto-start
+	Server     string  `json:"server"`
+	DeviceID   string  `json:"device_id"`
+	Name       string  `json:"name"`
+	PIN        string  `json:"pin"`
+	FPS        int     `json:"fps"`
+	Quality    int     `json:"quality"`
+	Scale      float64 `json:"scale"`
+	ClaimCode  string  `json:"claim_code"`  // Phase 1: shown in the window, entered once in the dashboard
+	AutoRunSet bool    `json:"autorun_set"` // true once the user (or first-run default) decided about auto-start
 }
 
 func configPath() string {
@@ -205,7 +219,7 @@ func randomID() string {
 	_, _ = rand.Read(b[:])
 	var sb strings.Builder
 	for _, v := range b {
-		sb.WriteByte(byte('1' + int(v) % 9))
+		sb.WriteByte(byte('1' + int(v)%9))
 	}
 	return sb.String()
 }
@@ -434,6 +448,11 @@ func handleFileChunk(data []byte) {
 // ---------------- main ----------------
 
 func main() {
+	// v8.9.2: pin the main goroutine to the main OS thread. Without this,
+	// Go can resume the GUI goroutine on a different OS thread after a
+	// blocking syscall, and the window's messages are never dispatched —
+	// the classic random Go Win32 freeze our watchdog kept "fixing".
+	runtime.LockOSThread()
 	if len(os.Args) > 1 && os.Args[1] == "--uninstall" {
 		initLog()
 		doUninstall()
@@ -450,16 +469,21 @@ func main() {
 		log("another instance is already running, exiting")
 		return
 	}
+	// v8.9.2: read the flag BEFORE clearing it (the old order cleared it
+	// first, so "did not quit cleanly" printed on every single start).
+	wasClean := wasCleanQuit()
 	clearCleanQuitFlag() // we're running; a later --watchdog may restart us
-	if !wasCleanQuit() {
+	if !wasClean {
 		log("watchdog: previous run did not quit cleanly")
 	}
 	registerRestart() // v8.9.0: Windows restarts us on crash/hang
 	startWatchdog()   // v8.9.0: restart ourselves if the UI thread sticks
-	ensureWatchdogTask() // v8.9.0: scheduled task reopens us if killed
+	// v8.9.2: schtasks + the prereq COM checks run off the startup path —
+	// they used to block the main thread before the GUI's first tick.
+	go ensureWatchdogTask() // v8.9.0: scheduled task reopens us if killed
 	cfg = loadConfig()
 	log("ID %s, server %s", cfg.DeviceID, cfg.Server)
-	runPrereqCheck() // v8.4.0: verify camera/mic components, log what's missing
+	go runPrereqCheck() // v8.4.0: verify camera/mic components, log what's missing
 
 	// auto-start with Windows by default from now on; the in-window checkbox opts out
 	if !cfg.AutoRunSet {
@@ -497,7 +521,7 @@ func main() {
 	})
 
 	go autoUpdateCheck() // silent update check: 60s after start, then every 6h
-	runGUI() // blocks until the window is closed
+	runGUI()             // blocks until the window is closed
 	log("window closed, exiting")
 }
 
@@ -592,7 +616,7 @@ func runSession(cfg *Config) error {
 						binary.BigEndian.PutUint16(ib[:], uint16(idx))
 						pkt = append(pkt, ib[:]...)
 						pkt = append(pkt, tile...)
-								if err := wsWrite(websocket.BinaryMessage, pkt); err != nil {
+						if err := wsWrite(websocket.BinaryMessage, pkt); err != nil {
 							return
 						}
 					}

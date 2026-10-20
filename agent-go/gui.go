@@ -26,51 +26,52 @@ var (
 	msimg = windows.NewLazySystemDLL("msimg32.dll")
 	comc  = windows.NewLazySystemDLL("comctl32.dll")
 
-	pRegisterClassExW = u32.NewProc("RegisterClassExW")
-	pCreateWindowExW   = u32.NewProc("CreateWindowExW")
-	pRegisterClassW   = u32.NewProc("RegisterClassW")
-	pDefWindowProcW    = u32.NewProc("DefWindowProcW")
-	pShowWindow        = u32.NewProc("ShowWindow")
-	pUpdateWindow      = u32.NewProc("UpdateWindow")
-	pGetMessageW       = u32.NewProc("GetMessageW")
-	pTranslateMessage  = u32.NewProc("TranslateMessage")
-	pDispatchMessageW  = u32.NewProc("DispatchMessageW")
-	pPostQuitMessage   = u32.NewProc("PostQuitMessage")
-	pPostMessageW      = u32.NewProc("PostMessageW")
-	pSendMessageW      = u32.NewProc("SendMessageW")
-	pSetWindowTextW    = u32.NewProc("SetWindowTextW")
-	pLoadCursorW       = u32.NewProc("LoadCursorW")
-	pLoadImageW        = u32.NewProc("LoadImageW")
-	pBeginPaint        = u32.NewProc("BeginPaint")
-	pEndPaint          = u32.NewProc("EndPaint")
-	pOpenClipboard     = u32.NewProc("OpenClipboard")
-	pEmptyClipboard    = u32.NewProc("EmptyClipboard")
-	pSetClipboardData  = u32.NewProc("SetClipboardData")
-	pCloseClipboard    = u32.NewProc("CloseClipboard")
-	pCreateMutexW      = k32.NewProc("CreateMutexW")
-	pCreateFontW      = g32.NewProc("CreateFontW")
-	pCreateSolidBrush = g32.NewProc("CreateSolidBrush")
-	pCreatePen        = g32.NewProc("CreatePen")
-	pRoundRect        = g32.NewProc("RoundRect")
-	pEllipse          = g32.NewProc("Ellipse")
-	pGetDC            = u32.NewProc("GetDC")
-	pReleaseDC        = u32.NewProc("ReleaseDC")
-	pCreateDIBitmap   = g32.NewProc("CreateDIBitmap")
-	pDeleteObject     = g32.NewProc("DeleteObject")
+	pRegisterClassExW   = u32.NewProc("RegisterClassExW")
+	pCreateWindowExW    = u32.NewProc("CreateWindowExW")
+	pRegisterClassW     = u32.NewProc("RegisterClassW")
+	pDefWindowProcW     = u32.NewProc("DefWindowProcW")
+	pShowWindow         = u32.NewProc("ShowWindow")
+	pUpdateWindow       = u32.NewProc("UpdateWindow")
+	pGetMessageW        = u32.NewProc("GetMessageW")
+	pTranslateMessage   = u32.NewProc("TranslateMessage")
+	pDispatchMessageW   = u32.NewProc("DispatchMessageW")
+	pPostQuitMessage    = u32.NewProc("PostQuitMessage")
+	pPostMessageW       = u32.NewProc("PostMessageW")
+	pSendMessageW       = u32.NewProc("SendMessageW")
+	pSetWindowTextW     = u32.NewProc("SetWindowTextW")
+	pLoadCursorW        = u32.NewProc("LoadCursorW")
+	pLoadImageW         = u32.NewProc("LoadImageW")
+	pBeginPaint         = u32.NewProc("BeginPaint")
+	pEndPaint           = u32.NewProc("EndPaint")
+	pOpenClipboard      = u32.NewProc("OpenClipboard")
+	pEmptyClipboard     = u32.NewProc("EmptyClipboard")
+	pSetClipboardData   = u32.NewProc("SetClipboardData")
+	pCloseClipboard     = u32.NewProc("CloseClipboard")
+	pCreateMutexW       = k32.NewProc("CreateMutexW")
+	pCreateFontW        = g32.NewProc("CreateFontW")
+	pCreateSolidBrush   = g32.NewProc("CreateSolidBrush")
+	pCreatePen          = g32.NewProc("CreatePen")
+	pRoundRect          = g32.NewProc("RoundRect")
+	pEllipse            = g32.NewProc("Ellipse")
+	pGetDC              = u32.NewProc("GetDC")
+	pReleaseDC          = u32.NewProc("ReleaseDC")
+	pCreateDIBitmap     = g32.NewProc("CreateDIBitmap")
+	pDeleteObject       = g32.NewProc("DeleteObject")
 	pCreateCompatibleDC = g32.NewProc("CreateCompatibleDC")
-	pDeleteDC         = g32.NewProc("DeleteDC")
-	pBitBlt           = g32.NewProc("BitBlt")
-	pSetTextColor     = g32.NewProc("SetTextColor")
-	pSetBkMode        = g32.NewProc("SetBkMode")
-	pSelectObject     = g32.NewProc("SelectObject")
-	pFillRect         = u32.NewProc("FillRect")
-	pDrawTextW        = u32.NewProc("DrawTextW")
-	pGradientFill     = msimg.NewProc("GradientFill")
-	pInitCommon       = comc.NewProc("InitCommonControlsEx")
+	pDeleteDC           = g32.NewProc("DeleteDC")
+	pBitBlt             = g32.NewProc("BitBlt")
+	pSetTextColor       = g32.NewProc("SetTextColor")
+	pSetBkMode          = g32.NewProc("SetBkMode")
+	pSelectObject       = g32.NewProc("SelectObject")
+	pFillRect           = u32.NewProc("FillRect")
+	pDrawTextW          = u32.NewProc("DrawTextW")
+	pGradientFill       = msimg.NewProc("GradientFill")
+	pInitCommon         = comc.NewProc("InitCommonControlsEx")
 
-	pGlobalAlloc = k32.NewProc("GlobalAlloc")
-	pGlobalLock  = k32.NewProc("GlobalLock")
+	pGlobalAlloc  = k32.NewProc("GlobalAlloc")
+	pGlobalLock   = k32.NewProc("GlobalLock")
 	pGlobalUnlock = k32.NewProc("GlobalUnlock")
+	pGlobalFree   = k32.NewProc("GlobalFree") // v8.9.2: clipboard failure path
 )
 
 const (
@@ -108,6 +109,9 @@ const (
 	MB_ICONERROR        = 16
 	MB_ICONQUESTION     = 32
 	MB_ICONINFORMATION  = 64
+	MB_TASKMODAL        = 0x2000 // v8.9.2: worker-thread dialogs stay on top without owning the main window
+	MB_SETFOREGROUND    = 0x10000
+	MB_TOPMOST          = 0x40000
 	IDYES               = 6
 )
 
@@ -115,37 +119,39 @@ const (
 	WM_APP_STATUS   = WM_APP + 1
 	WM_APP_PROGRESS = WM_APP + 2
 	WM_APP_UPDBTN   = WM_APP + 3
+	WM_APP_CAMSTAT  = WM_APP + 4 // v8.9.2: worker-thread camera status
+	WM_APP_META     = WM_APP + 5 // v8.9.2: worker-thread viewers/uptime text
 )
 
 const (
-	ctlIDLabel = 101
-	ctlIDValue = 102
-	ctlPINLabel = 103
-	ctlPINValue = 104
-	ctlNewPIN   = 105
-	ctlDot      = 106
-	ctlStatus   = 107
-	ctlLinkLbl  = 108
-	ctlLinkEdit = 109
-	ctlCopy     = 110
-	ctlUpdate   = 111
-	ctlAutoRun  = 112
-	ctlProg     = 113
-	ctlQuit     = 114
-	ctlVer      = 115
-	ctlCopyID   = 116
-	ctlMeta     = 117
-	ctlClaimLbl = 118
-	ctlClaimVal = 119
-	ctlCopyClaim = 120
-	ctlViewLbl  = 121
-	ctlWakeLbl  = 122
-	ctlWakeVal  = 123
+	ctlIDLabel     = 101
+	ctlIDValue     = 102
+	ctlPINLabel    = 103
+	ctlPINValue    = 104
+	ctlNewPIN      = 105
+	ctlDot         = 106
+	ctlStatus      = 107
+	ctlLinkLbl     = 108
+	ctlLinkEdit    = 109
+	ctlCopy        = 110
+	ctlUpdate      = 111
+	ctlAutoRun     = 112
+	ctlProg        = 113
+	ctlQuit        = 114
+	ctlVer         = 115
+	ctlCopyID      = 116
+	ctlMeta        = 117
+	ctlClaimLbl    = 118
+	ctlClaimVal    = 119
+	ctlCopyClaim   = 120
+	ctlViewLbl     = 121
+	ctlWakeLbl     = 122
+	ctlWakeVal     = 123
 	ctlWakeInstall = 124
-	ctlCamLbl   = 125
-	ctlCamVal   = 126
-	ctlFixCam   = 127
-	ctlRepairWin = 128 // v8.9.0: sfc /scannow + DISM one-click repair
+	ctlCamLbl      = 125
+	ctlCamVal      = 126
+	ctlFixCam      = 127
+	ctlRepairWin   = 128 // v8.9.0: sfc /scannow + DISM one-click repair
 )
 
 type wndClassExW struct {
@@ -176,20 +182,20 @@ type msgT struct {
 }
 
 type paintStruct struct {
-	hdc         uintptr
-	fErase      uint32
-	left        int32
-	top         int32
-	right       int32
-	bottom      int32
-	fRestore    uint32
-	fIncUpdate  uint32
-	reserved    [32]byte
+	hdc        uintptr
+	fErase     uint32
+	left       int32
+	top        int32
+	right      int32
+	bottom     int32
+	fRestore   uint32
+	fIncUpdate uint32
+	reserved   [32]byte
 }
 
 type triVertex struct {
-	x, y          int32
-	r, g, b, a    uint16
+	x, y       int32
+	r, g, b, a uint16
 }
 
 type iccEx struct {
@@ -520,12 +526,12 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		// section cards — v8.8 layout with profile card on top
 		oldPen, _, _ := pSelectObject.Call(hdc, gCardPen)
 		oldBr, _, _ := pSelectObject.Call(hdc, gCardBr)
-		pRoundRect.Call(hdc, 20, 208, 418, 306, 24, 24)   // your ID
-		pRoundRect.Call(hdc, 20, 318, 418, 416, 24, 24)   // PIN & status
-		pRoundRect.Call(hdc, 20, 428, 418, 526, 24, 24)    // link this device
-		pRoundRect.Call(hdc, 434, 208, 840, 306, 24, 24)   // invite link
-		pRoundRect.Call(hdc, 434, 318, 840, 416, 24, 24)  // viewers
-		pRoundRect.Call(hdc, 434, 428, 840, 526, 24, 24)   // wake-up & camera
+		pRoundRect.Call(hdc, 20, 208, 418, 306, 24, 24)  // your ID
+		pRoundRect.Call(hdc, 20, 318, 418, 416, 24, 24)  // PIN & status
+		pRoundRect.Call(hdc, 20, 428, 418, 526, 24, 24)  // link this device
+		pRoundRect.Call(hdc, 434, 208, 840, 306, 24, 24) // invite link
+		pRoundRect.Call(hdc, 434, 318, 840, 416, 24, 24) // viewers
+		pRoundRect.Call(hdc, 434, 428, 840, 526, 24, 24) // wake-up & camera
 		pSelectObject.Call(hdc, oldPen)
 		pSelectObject.Call(hdc, oldBr)
 		drawViewers(hdc)
@@ -586,6 +592,15 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 			pEnableWindow.Call(h, en)
 		}
 		return 0
+	case WM_APP_CAMSTAT:
+		gState.mu.Lock()
+		cs := gState.camStatus
+		gState.mu.Unlock()
+		setText(ctlCamVal, cs)
+		return 0
+	case WM_APP_META:
+		refreshMeta()
+		return 0
 	case WM_TIMER:
 		heartbeatTick() // v8.9.0: watchdog heartbeat
 		refreshMeta()
@@ -610,32 +625,55 @@ func msgBox(title, text string, flags uintptr) {
 	// keep the UTF-16 buffers alive in locals for the whole modal call
 	t, _ := windows.UTF16FromString(title)
 	m, _ := windows.UTF16FromString(text)
-	pMessageBoxW.Call(gHWND, uintptr(unsafe.Pointer(&m[0])), uintptr(unsafe.Pointer(&t[0])), flags)
+	// v8.9.2: owner 0 + taskmodal/topmost — these are often called from
+	// worker goroutines (fix-camera, repair flows); owning the main window
+	// from another thread disables it, and a hidden box made the app look
+	// dead while clicks did nothing.
+	pMessageBoxW.Call(0, uintptr(unsafe.Pointer(&m[0])), uintptr(unsafe.Pointer(&t[0])), flags|MB_TASKMODAL|MB_SETFOREGROUND|MB_TOPMOST)
 }
 
 func msgBoxYesNo(title, text string) bool {
 	t, _ := windows.UTF16FromString(title)
 	m, _ := windows.UTF16FromString(text)
-	r, _, _ := pMessageBoxW.Call(gHWND, uintptr(unsafe.Pointer(&m[0])), uintptr(unsafe.Pointer(&t[0])), MB_YESNO|MB_ICONQUESTION)
+	r, _, _ := pMessageBoxW.Call(0, uintptr(unsafe.Pointer(&m[0])), uintptr(unsafe.Pointer(&t[0])), MB_YESNO|MB_ICONQUESTION|MB_TASKMODAL|MB_SETFOREGROUND|MB_TOPMOST)
 	return r == IDYES
 }
 
 func copyToClipboard(s string) {
-	pOpenClipboard.Call(gHWND)
+	// v8.9.2: retry OpenClipboard (another app may hold it briefly) and
+	// check results — the old code ignored both return values, could show
+	// "ID copied" when the copy failed, and leaked the handle on failure.
+	opened := false
+	for i := 0; i < 10 && !opened; i++ {
+		if r, _, _ := pOpenClipboard.Call(gHWND); r != 0 {
+			opened = true
+		} else {
+			time.Sleep(15 * time.Millisecond)
+		}
+	}
+	if !opened {
+		return
+	}
+	defer pCloseClipboard.Call()
 	pEmptyClipboard.Call(0)
 	b, _ := windows.UTF16FromString(s)
 	size := uintptr(len(b)) * 2
 	h, _, _ := pGlobalAlloc.Call(GMEM_MOVEABLE, size)
-	if h != 0 {
-		p, _, _ := pGlobalLock.Call(h)
-		if p != 0 {
-			dst := unsafe.Slice((*uint16)(unsafe.Pointer(p)), len(b))
-			copy(dst, b)
-			pGlobalUnlock.Call(h)
-			pSetClipboardData.Call(CF_UNICODETEXT, h)
-		}
+	if h == 0 {
+		return
 	}
-	pCloseClipboard.Call()
+	p, _, _ := pGlobalLock.Call(h)
+	if p == 0 {
+		pGlobalFree.Call(h)
+		return
+	}
+	dst := unsafe.Slice((*uint16)(unsafe.Pointer(p)), len(b))
+	copy(dst, b)
+	pGlobalUnlock.Call(h)
+	if r, _, _ := pSetClipboardData.Call(CF_UNICODETEXT, h); r == 0 {
+		pGlobalFree.Call(h) // clipboard didn't take ownership
+	}
+	// on success the clipboard owns h — don't free it
 }
 
 // updateRunning guards against stacked update flows from repeated clicks.
@@ -705,18 +743,25 @@ func inviteLink() string {
 }
 
 // setCamStatus stores the camera health line and updates the window if shown.
+// v8.9.2: callable from worker goroutines — it used to call setText directly,
+// a synchronous cross-thread SendMessage that stalls the worker when the UI
+// isn't pumping. Now it stores state and posts; the UI thread applies it.
 func setCamStatus(s string) {
 	gState.mu.Lock()
 	gState.camStatus = s
 	gState.mu.Unlock()
-	setText(ctlCamVal, s)
+	if gHWND != 0 {
+		pPostMessageW.Call(gHWND, WM_APP_CAMSTAT, 0, 0)
+	}
 }
 
 func guiSetViewers(n int) {
 	gState.mu.Lock()
 	gState.viewers = n
 	gState.mu.Unlock()
-	refreshMeta()
+	if gHWND != 0 {
+		pPostMessageW.Call(gHWND, WM_APP_META, 0, 0)
+	}
 }
 
 func fmtUptime(d time.Duration) string {
@@ -780,15 +825,20 @@ var singleInstanceMutex uintptr
 // loop and updater start — previously a duplicate instance connected with
 // the same device ID and downloaded updates before noticing it was a dup.
 func acquireSingleInstance() bool {
-	mname := u16("SWRemote-Agent-Mutex")
-	h, _, _ := pCreateMutexW.Call(0, 0, uintptr(unsafe.Pointer(mname)))
-	if h != 0 && windows.GetLastError() == windows.ERROR_ALREADY_EXISTS {
+	// v8.9.2: use openAgentMutex (windows.CreateMutex returns the real
+	// ERROR_ALREADY_EXISTS) — the old lazy-proc + separate GetLastError
+	// check raced and let duplicates through (see watchdog.go).
+	h, exists := openAgentMutex()
+	if exists {
+		if h != 0 {
+			windows.CloseHandle(h)
+		}
 		t, _ := windows.UTF16PtrFromString("SWRemote")
 		m, _ := windows.UTF16PtrFromString("SWRemote is already running.\nLook for its window on the taskbar.")
 		pMessageBoxW.Call(0, uintptr(unsafe.Pointer(m)), uintptr(unsafe.Pointer(t)), 64)
 		return false
 	}
-	singleInstanceMutex = h
+	singleInstanceMutex = uintptr(h)
 	_ = singleInstanceMutex
 	return true
 }
@@ -799,7 +849,7 @@ func runGUI() {
 	pInitCommon.Call(uintptr(unsafe.Pointer(&icc)))
 
 	gWhiteBr, _, _ = pCreateSolidBrush.Call(colorRef(255, 255, 255))
-	gBgBr, _, _ = pCreateSolidBrush.Call(colorRef(0xf7, 0xfa, 0xfe)) // v8.8: website surface
+	gBgBr, _, _ = pCreateSolidBrush.Call(colorRef(0xf7, 0xfa, 0xfe))   // v8.8: website surface
 	gBlueBr, _, _ = pCreateSolidBrush.Call(colorRef(0x7c, 0x3a, 0xed)) // v8.8: violet primary
 	gCardBr, _, _ = pCreateSolidBrush.Call(colorRef(255, 255, 255))
 	gCardPen, _, _ = pCreatePen.Call(0 /*PS_SOLID*/, 1, colorRef(0xe7, 0xed, 0xf5))
@@ -891,7 +941,7 @@ func runGUI() {
 	if cs != "" {
 		setText(ctlCamVal, cs)
 	}
-	pSetTimer.Call(hwnd, 1, 5000, 0) // v8.9.0: 5s heartbeat + uptime refresh
+	pSetTimer.Call(hwnd, 1, 1000, 0) // v8.9.2: 1s heartbeat (was 5s) + uptime refresh
 	pShowWindow.Call(hwnd, SW_SHOW)
 	pUpdateWindow.Call(hwnd)
 

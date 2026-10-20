@@ -4,30 +4,44 @@
 //  1. RegisterApplicationRestart — tells Windows to restart us if we crash
 //     or hang (detected by Windows Error Reporting).
 //  2. In-process watchdog — the GUI thread posts a heartbeat every second;
-//     if the heartbeat goes stale for 45s (UI thread stuck, "not
-//     responding"), we restart ourselves instead of staying frozen.
+//     if the heartbeat goes stale (20s, two consecutive checks, watched
+//     only after the first tick) we dump goroutines and restart ourselves
+//     instead of staying frozen.
 
 package main
 
 import (
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
-	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
 var (
-	k32wd                        = windows.NewLazySystemDLL("kernel32.dll")
-	pRegisterApplicationRestart  = k32wd.NewProc("RegisterApplicationRestart")
+	k32wd                         = windows.NewLazySystemDLL("kernel32.dll")
+	pRegisterApplicationRestart   = k32wd.NewProc("RegisterApplicationRestart")
 	pUnregisterApplicationRestart = k32wd.NewProc("UnregisterApplicationRestart")
 
 	guiHeartbeat int64 // unix seconds, updated by the GUI thread
 	quitting     int32 // set when the user quits cleanly
+	armed        int32 // set by heartbeatTick on the first tick
 )
+
+// openAgentMutex creates/opens the agent mutex and reports whether another
+// instance already holds it. v8.9.2: the old code called CreateMutexW through
+// a lazy proc and then read GetLastError in a SEPARATE call — the error from
+// the proc call comes back as the .Call's third return, and the separate
+// GetLastError raced, so duplicates were almost never detected and copies
+// piled up every 5 minutes from the scheduled task.
+func openAgentMutex() (windows.Handle, bool) {
+	name, _ := windows.UTF16PtrFromString("SWRemote-Agent-Mutex")
+	h, err := windows.CreateMutex(nil, false, name)
+	return h, err == windows.ERROR_ALREADY_EXISTS
+}
 
 // registerRestart tells Windows to restart the app on crash/hang.
 func registerRestart() {
@@ -47,25 +61,45 @@ func unregisterRestart() {
 // heartbeatTick is called from the GUI thread (WM_TIMER) every second.
 func heartbeatTick() {
 	atomic.StoreInt64(&guiHeartbeat, time.Now().Unix())
+	atomic.StoreInt32(&armed, 1) // watchdog arms only after the pump ticks
 }
 
 // startWatchdog launches the monitor goroutine. Call once at startup.
+// v8.9.2: it used to start counting immediately (45s from process start)
+// even though startup itself — schtasks, config, prereq COM checks — runs
+// before the GUI's first timer tick, so fresh instances were killed mid-
+// startup. Now: checks are skipped until the first heartbeat tick, the
+// threshold is 20s, the stall must persist across 2 consecutive checks,
+// and a full goroutine dump is logged before restarting so the next hang
+// tells us exactly where it stuck.
 func startWatchdog() {
-	atomic.StoreInt64(&guiHeartbeat, time.Now().Unix())
 	go func() {
-		tick := time.NewTicker(10 * time.Second)
+		tick := time.NewTicker(5 * time.Second)
 		defer tick.Stop()
+		strikes := 0
 		for range tick.C {
 			if atomic.LoadInt32(&quitting) != 0 {
 				return
 			}
+			if atomic.LoadInt32(&armed) == 0 {
+				continue // GUI hasn't ticked yet — still starting up
+			}
 			last := atomic.LoadInt64(&guiHeartbeat)
 			stale := time.Now().Unix() - last
-			if stale > 45 {
-				log("watchdog: GUI thread stuck for %ds — restarting", stale)
-				restartSelf()
-				return
+			if stale <= 20 {
+				strikes = 0
+				continue
 			}
+			strikes++
+			if strikes < 2 {
+				continue
+			}
+			log("watchdog: GUI thread stuck for %ds — restarting", stale)
+			buf := make([]byte, 1<<20)
+			n := runtime.Stack(buf, true)
+			log("watchdog: HANG DUMP:\n%s", buf[:n])
+			restartSelf()
+			return
 		}
 	}()
 }
@@ -139,14 +173,12 @@ func wasCleanQuit() bool {
 // Silently ensures the agent is running; does nothing if the user quit it.
 func watchdogCheck() {
 	// try the single-instance mutex: if it exists, the agent is running
-	mname, _ := windows.UTF16PtrFromString("SWRemote-Agent-Mutex")
-	h, _, _ := pCreateMutexW.Call(0, 0, uintptr(unsafe.Pointer(mname)))
-	if h != 0 && windows.GetLastError() == windows.ERROR_ALREADY_EXISTS {
-		windows.CloseHandle(windows.Handle(h))
-		return // already running — nothing to do
-	}
+	h, exists := openAgentMutex()
 	if h != 0 {
-		windows.CloseHandle(windows.Handle(h))
+		windows.CloseHandle(h)
+	}
+	if exists {
+		return // already running — nothing to do
 	}
 	if wasCleanQuit() {
 		return // user quit intentionally — stay closed

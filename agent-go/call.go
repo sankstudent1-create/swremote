@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"image"
 	_ "image/jpeg"
+	"runtime"
 	"sync"
 	"time"
 	"unsafe"
@@ -218,9 +219,12 @@ func openVideoWindow() {
 		return
 	}
 	go func() {
+		// v8.9.2: this goroutine owns the video window — pin it to one OS
+		// thread or its message loop freezes the same way the main GUI did.
+		runtime.LockOSThread()
 		cls := u16("SWRemoteVideo")
 		cursor, _, _ := pLoadCursorW.Call(0, IDC_ARROW)
-		var wc [72]byte // WNDCLASSW
+		var wc [72]byte        // WNDCLASSW
 		putU32(wc[0:], 0x0003) // style: CS_HREDRAW|CS_VREDRAW
 		*(*uintptr)(unsafe.Pointer(&wc[8])) = videoWndProcCb
 		*(*uintptr)(unsafe.Pointer(&wc[40])) = cursor

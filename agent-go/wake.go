@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"golang.org/x/sys/windows"
 	"io"
 	"net/http"
 	"os"
@@ -14,7 +15,6 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
-	"golang.org/x/sys/windows"
 )
 
 func downloadFile(url, dest string) error {

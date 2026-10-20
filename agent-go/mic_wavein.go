@@ -20,22 +20,22 @@ var (
 )
 
 const (
-	WIM_OPEN  = 0x3BE
-	WIM_DATA  = 0x3C0
-	WIM_CLOSE = 0x3BF
+	WIM_OPEN          = 0x3BE
+	WIM_DATA          = 0x3C0
+	WIM_CLOSE         = 0x3BF
 	CALLBACK_FUNCTION = 0x30000
 )
 
 // waveInHdr mirrors the WAVEHDR struct.
 type waveInHdr struct {
-	lpData         uintptr
-	dwBufferLength uint32
+	lpData          uintptr
+	dwBufferLength  uint32
 	dwBytesRecorded uint32
-	dwUser         uintptr
-	dwFlags        uint32
-	dwLoops        uint32
-	lpNext         uintptr
-	reserved       uintptr
+	dwUser          uintptr
+	dwFlags         uint32
+	dwLoops         uint32
+	lpNext          uintptr
+	reserved        uintptr
 }
 
 var waveInHandle uintptr

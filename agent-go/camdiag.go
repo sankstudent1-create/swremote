@@ -18,13 +18,13 @@ import (
 )
 
 var (
-	setupapi = windows.NewLazySystemDLL("setupapi.dll")
-	pSetupDiGetClassDevsW = setupapi.NewProc("SetupDiGetClassDevsW")
-	pSetupDiEnumDeviceInfo = setupapi.NewProc("SetupDiEnumDeviceInfo")
+	setupapi                          = windows.NewLazySystemDLL("setupapi.dll")
+	pSetupDiGetClassDevsW             = setupapi.NewProc("SetupDiGetClassDevsW")
+	pSetupDiEnumDeviceInfo            = setupapi.NewProc("SetupDiEnumDeviceInfo")
 	pSetupDiGetDeviceRegistryProperty = setupapi.NewProc("SetupDiGetDeviceRegistryPropertyW")
-	pSetupDiDestroyDeviceInfoList = setupapi.NewProc("SetupDiDestroyDeviceInfoList")
+	pSetupDiDestroyDeviceInfoList     = setupapi.NewProc("SetupDiDestroyDeviceInfoList")
 
-	cfgmgr32 = windows.NewLazySystemDLL("cfgmgr32.dll")
+	cfgmgr32            = windows.NewLazySystemDLL("cfgmgr32.dll")
 	pCMGetDevNodeStatus = cfgmgr32.NewProc("CM_Get_DevNode_Status")
 )
 
@@ -226,7 +226,7 @@ func frameServerMode() string {
 // classes stay broken — this shows whether the registration landed at all.
 func comRegCheck() string {
 	classes := []struct {
-		name string
+		name  string
 		clsid string
 	}{
 		{"SystemDeviceEnum", "{62BE5D10-60EB-11D0-BD3B-00A0C911CE86}"},

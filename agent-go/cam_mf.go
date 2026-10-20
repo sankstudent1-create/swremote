@@ -21,50 +21,54 @@ import (
 )
 
 var (
-	mfplat       = windows.NewLazySystemDLL("mfplat.dll")
-	mfDll        = windows.NewLazySystemDLL("mf.dll")
-	mfreadwrite  = windows.NewLazySystemDLL("mfreadwrite.dll")
-	pMFStartup   = mfplat.NewProc("MFStartup")
-	pMFCreateAttributes = mfplat.NewProc("MFCreateAttributes")
-	pMFCreateMediaType  = mfplat.NewProc("MFCreateMediaType")
-	pMFEnumDeviceSources = mfDll.NewProc("MFEnumDeviceSources")
+	mfplat                = windows.NewLazySystemDLL("mfplat.dll")
+	mfDll                 = windows.NewLazySystemDLL("mf.dll")
+	mfreadwrite           = windows.NewLazySystemDLL("mfreadwrite.dll")
+	pMFStartup            = mfplat.NewProc("MFStartup")
+	pMFCreateAttributes   = mfplat.NewProc("MFCreateAttributes")
+	pMFCreateMediaType    = mfplat.NewProc("MFCreateMediaType")
+	pMFEnumDeviceSources  = mfDll.NewProc("MFEnumDeviceSources")
 	pMFCreateSourceReader = mfreadwrite.NewProc("MFCreateSourceReaderFromMediaSource")
-	pMFCreateDeviceSource  = mfDll.NewProc("MFCreateDeviceSource")
-	pCoTaskMemFree         = ole32.NewProc("CoTaskMemFree")
+	pMFCreateDeviceSource = mfDll.NewProc("MFCreateDeviceSource")
+	pCoTaskMemFree        = ole32.NewProc("CoTaskMemFree")
 )
 
 var (
 	// v8.6.7: SetupDi device-interface procs for the symbolic-link bypass
-	pSetupDiEnumDeviceInterfaces       = setupapi.NewProc("SetupDiEnumDeviceInterfaces")
-	pSetupDiGetDeviceInterfaceDetailW  = setupapi.NewProc("SetupDiGetDeviceInterfaceDetailW")
+	pSetupDiEnumDeviceInterfaces      = setupapi.NewProc("SetupDiEnumDeviceInterfaces")
+	pSetupDiGetDeviceInterfaceDetailW = setupapi.NewProc("SetupDiGetDeviceInterfaceDetailW")
 )
 
 const (
-	mfVersion                    = 0x00020070
-	mfStartupFull                = 0
-	mfFirstVideoStream           = 0xFFFFFFFC
+	mfVersion          = 0x00020070
+	mfStartupFull      = 0
+	mfFirstVideoStream = 0xFFFFFFFC
 )
 
 var (
-	guidMFDevSourceAttrType = guid(0xC60AC5FE, 0x252A, 0x478F, [8]byte{0xA0, 0xEF, 0xBC, 0x8F, 0xA5, 0x84, 0x37, 0x26})
+	guidMFDevSourceAttrType = guid(0xC60AC5FE, 0x252A, 0x478F, [8]byte{0xA0, 0xEF, 0xBC, 0x8F, 0xA5, 0xF7, 0xCA, 0xD3}) // v8.9.2: was ...84 37 26 — THE 0xC00D36E6 bug
 	guidMFDevSourceVidCap   = guid(0x8AC3587A, 0x4AE7, 0x42D8, [8]byte{0x99, 0xE0, 0x0A, 0x60, 0x13, 0xEE, 0xF9, 0x0F})
 	guidMFMediaTypeVideo    = guid(0x73646976, 0x0000, 0x0010, [8]byte{0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71})
-	guidMFVideoFormatRGB24  = guid(0xE436EB7D, 0x524F, 0x11CE, [8]byte{0x9F, 0x53, 0x00, 0x20, 0xAF, 0x0B, 0xA7, 0x70})
-	guidMFVideoFormatMJPEG  = guid(0xCB10D434, 0x905F, 0x42AA, [8]byte{0xBC, 0xC4, 0x65, 0x7E, 0x2A, 0xC0, 0x9E, 0x7E})
+	guidMFVideoFormatRGB24  = guid(0x00000014, 0x0000, 0x0010, [8]byte{0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71}) // v8.9.2: MFVideoFormat_RGB24 (was the DS subtype)
+	guidMFVideoFormatMJPEG  = guid(0x47504A4D, 0x0000, 0x0010, [8]byte{0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71}) // v8.9.2: 'MJPG' fourcc GUID
 	guidMFVideoFormatYUY2   = guid(0x32595559, 0x0000, 0x0010, [8]byte{0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71})
-	guidMFMTMajorType       = guid(0x48EBA18E, 0xF8C9, 0x461A, [8]byte{0xB6, 0x64, 0x96, 0x2B, 0x02, 0x42, 0x8F, 0x33})
-	guidMFMTSubtype         = guid(0xF7E34C9A, 0x42E8, 0x4714, [8]byte{0xB7, 0x4B, 0xAA, 0x6B, 0x67, 0x33, 0x6E, 0xCC})
-	guidMFMTFrameSize       = guid(0x1652C33D, 0xD6B2, 0x4019, [8]byte{0xB8, 0x34, 0xF4, 0x75, 0x84, 0x1E, 0xDA, 0xA9})
-	guidMFMTDefaultStride   = guid(0x6446461B, 0x8DA0, 0x4538, [8]byte{0xAD, 0x1C, 0xDB, 0x59, 0x46, 0xCE, 0xD9, 0x98})
-	// v8.6.4: MFEnumDeviceSources returns IMFActivate objects, not sources
-	iidIMFMediaSource = guid(0xDF598932, 0xF10C, 0x4E39, [8]byte{0xBB, 0xA2, 0xC3, 0x08, 0xF1, 0x01, 0xDA, 0xA3})
+	guidMFMTMajorType       = guid(0x48EBA18E, 0xF8C9, 0x4687, [8]byte{0xBF, 0x11, 0x0A, 0x74, 0xC9, 0xF9, 0x6A, 0x8F}) // v8.9.2: header-verified
+	guidMFMTSubtype         = guid(0xF7E34C9A, 0x42E8, 0x4714, [8]byte{0xB7, 0x4B, 0xCB, 0x29, 0xD7, 0x2C, 0x35, 0xE5}) // v8.9.2: header-verified
+	guidMFMTFrameSize       = guid(0x1652C33D, 0xD6B2, 0x4012, [8]byte{0xB8, 0x34, 0x72, 0x03, 0x08, 0x49, 0xA3, 0x7D}) // v8.9.2: header-verified
+	guidMFMTDefaultStride   = guid(0x644B4E48, 0x1E02, 0x4516, [8]byte{0xB0, 0xEB, 0xC0, 0x1C, 0xA9, 0xD4, 0x9A, 0xC6}) // v8.9.2: header-verified
+	// v8.9.2: MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING — lets the reader
+	// convert native YUY2/MJPEG to RGB24.
+	guidMFReaderEnableVideoProcessing = guid(0xFB6C4286, 0x0353, 0x11D1, [8]byte{0x90, 0x5F, 0x00, 0x00, 0xC0, 0xCC, 0x16, 0xBA})
+	// v8.6.4: MFEnumDeviceSources returns IMFActivate objects, not sources.
+	// v8.9.2: was IID_IMFMediaEvent — ActivateObject would E_NOINTERFACE.
+	iidIMFMediaSource = guid(0x279A808D, 0xAEC7, 0x40C8, [8]byte{0x9C, 0x6B, 0xA6, 0xB4, 0x92, 0xC7, 0x8A, 0x66})
 	// v8.6.7: symbolic-link bypass — device interface + source creation
 	guidDevInterfaceImage = guid(0x6BDD1FC6, 0x810F, 0x11D0,
 		[8]byte{0xBE, 0xC7, 0x08, 0x00, 0x2B, 0xE2, 0x09, 0x2F})
-	guidDevInterfaceUSB = guid(0xA5DCBF10, 0x6530, 0x11D0,
+	guidDevInterfaceUSB = guid(0xA5DCBF10, 0x6530, 0x11D2,
 		[8]byte{0x90, 0x1F, 0x00, 0xC0, 0x4F, 0xB9, 0x51, 0xED})
-	guidMFDevSourceVidCapSymlink = guid(0x58F00C60, 0xBB62, 0x44A5,
-		[8]byte{0xAB, 0x67, 0xE9, 0x3D, 0xC9, 0xDB, 0xA3, 0xFA})
+	guidMFDevSourceVidCapSymlink = guid(0x58F0AAD8, 0x22BF, 0x4F8A,
+		[8]byte{0xBB, 0x3D, 0xD2, 0xC4, 0x97, 0x8C, 0x6E, 0x2F})
 )
 
 const digcfDeviceInterface = 0x00000010
@@ -298,7 +302,7 @@ func mfSourceFromEnum() (uintptr, uintptr) {
 		return 0, 0xC00D36D5 // MF_E_NOT_FOUND
 	}
 	var src uintptr
-	if hr := comCallN(act, 3, // IMFActivate::ActivateObject
+	if hr := comCallN(act, 33, // IMFActivate::ActivateObject (v8.9.2: was 3 — IMFActivate inherits IMFAttributes 0-32)
 		uintptr(unsafe.Pointer(&iidIMFMediaSource)),
 		uintptr(unsafe.Pointer(&src))); hr != 0 || src == 0 {
 		comRelease(act)
@@ -306,6 +310,19 @@ func mfSourceFromEnum() (uintptr, uintptr) {
 	}
 	comRelease(act)
 	return src, 0
+}
+
+// mfReaderAttrs builds reader attributes with video processing enabled so
+// SetCurrentMediaType(RGB24) succeeds on cameras that only expose YUY2/MJPEG.
+// Returns 0 if attributes can't be created (caller proceeds without).
+func mfReaderAttrs() uintptr {
+	var attr uintptr
+	if hr, _, _ := pMFCreateAttributes.Call(uintptr(unsafe.Pointer(&attr)), 1); hr != 0 || attr == 0 {
+		return 0
+	}
+	// IMFAttributes::SetUINT32 — vtable index 21
+	comCallN(attr, 21, uintptr(unsafe.Pointer(&guidMFReaderEnableVideoProcessing)), 1)
+	return attr
 }
 
 // mfCaptureLoop captures the first camera via IMFSourceReader.
@@ -342,7 +359,20 @@ func mfCaptureLoop(stop <-chan struct{}) error {
 	defer comRelease(src)
 
 	var reader uintptr
-	if hr, _, _ := pMFCreateSourceReader.Call(src, 0,
+	// v8.9.2: ask for video processing so the reader can convert native
+	// YUY2/MJPEG to RGB24; if attribute setup fails, retry without attrs.
+	if attrs := mfReaderAttrs(); attrs != 0 {
+		hr, _, _ := pMFCreateSourceReader.Call(src, attrs,
+			uintptr(unsafe.Pointer(&reader)))
+		comRelease(attrs)
+		if hr != 0 || reader == 0 {
+			reader = 0
+			if hr2, _, _ := pMFCreateSourceReader.Call(src, 0,
+				uintptr(unsafe.Pointer(&reader))); hr2 != 0 || reader == 0 {
+				return fmt.Errorf("source reader failed (%x)", hr)
+			}
+		}
+	} else if hr, _, _ := pMFCreateSourceReader.Call(src, 0,
 		uintptr(unsafe.Pointer(&reader))); hr != 0 || reader == 0 {
 		return fmt.Errorf("source reader failed (%x)", hr)
 	}
@@ -442,8 +472,8 @@ func mfGrabFrame(reader uintptr, subtype string, w, h, stride int) []byte {
 	var streamIdx, flags uint32
 	var ts int64
 	var sample uintptr
-	// IMFSourceReader::ReadSample — vtable index 8
-	if hr := comCallN(reader, 8, mfFirstVideoStream, 0,
+	// IMFSourceReader::ReadSample — vtable index 9 (v8.9.2: was 8 = SetCurrentPosition)
+	if hr := comCallN(reader, 9, mfFirstVideoStream, 0,
 		uintptr(unsafe.Pointer(&streamIdx)),
 		uintptr(unsafe.Pointer(&flags)),
 		uintptr(unsafe.Pointer(&ts)),
@@ -452,8 +482,8 @@ func mfGrabFrame(reader uintptr, subtype string, w, h, stride int) []byte {
 	}
 	defer comRelease(sample)
 	var buf uintptr
-	// IMFSample::GetBufferByIndex — vtable index 10
-	if hr := comCallN(sample, 10, 0,
+	// IMFSample::GetBufferByIndex — vtable index 40 (v8.9.2: was 10)
+	if hr := comCallN(sample, 40, 0,
 		uintptr(unsafe.Pointer(&buf))); hr != 0 || buf == 0 {
 		return nil
 	}
