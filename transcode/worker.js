@@ -33,7 +33,15 @@ const { spawn } = require("child_process");
 
 const PORT = parseInt(process.env.PORT || "8080", 10);
 const KEY = process.env.TRANSCODE_KEY || "";
-const FFMPEG = path.join(__dirname, "ffmpeg");
+// ffmpeg binary: from the ffmpeg-static npm package (fetched at npm install),
+// with a local ./ffmpeg as fallback.
+const FFMPEG = (() => {
+  try {
+    return require("ffmpeg-static");
+  } catch {
+    return path.join(__dirname, "ffmpeg");
+  }
+})();
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
 

@@ -11,7 +11,7 @@ services:
     name: swtranscode
     runtime: node
     rootDir: transcode
-    buildCommand: npm install && curl -sL -o ffmpeg.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz && tar -xf ffmpeg.tar.xz && cp $(find . -maxdepth 2 -name ffmpeg -type f | head -1) ./ffmpeg && chmod +x ./ffmpeg && rm -rf ffmpeg.tar.xz ffmpeg-*-amd64-static && ./ffmpeg -version | head -1
+    buildCommand: npm install
     startCommand: npm start
     plan: free
     healthCheckPath: /api/health
