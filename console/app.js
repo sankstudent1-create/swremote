@@ -135,7 +135,7 @@ function renderAccountPage() {
       </div>
     </div>
     <button id="btn-install2" class="hidden w-full mt-4 py-3 rounded-2xl bg-surface-container-low hover:bg-surface-container font-semibold transition-colors">Install SWRemote app</button>
-    <p class="text-xs text-outline mt-6 text-center">SWRemote · calm horizon edition</p>`;
+    <p class="text-xs text-outline mt-6 text-center">SWRemote · gen-z edition ⚡</p>`;
   if (signed) {
     $("btn-signout2").onclick = sbLogout;
     $("btn-save-profile").onclick = async () => {
@@ -358,6 +358,7 @@ async function loadDevices(quiet) {
     if (token) headers.Authorization = "Bearer " + token;
     const r = await fetch(serverBase() + "/api/devices", { headers });
     const j = await r.json();
+    loadDevices._retried = false;
     lastDevices = j.devices || [];
     renderDeviceList(lastDevices);
     const srt = $("side-relay-text");
@@ -370,12 +371,34 @@ async function loadDevices(quiet) {
       else if (target) toast("That PC is offline right now.");
     }
   } catch (e) {
+    // relay asleep (free tier)? wake it and retry once instead of an error card
+    if (!quiet && !loadDevices._retried) {
+      loadDevices._retried = true;
+      $("dev-count").textContent = "";
+      list.innerHTML = `<div class="col-span-full bg-surface-container-lowest rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
+        <span class="material-symbols-outlined text-5xl text-primary mb-3">bedtime</span>
+        <div class="font-display font-bold text-xl mb-1">Waking the server…</div>
+        <div class="text-sm text-on-surface-variant">Free servers nap when idle — give it up to a minute.</div></div>`;
+      wakeServerLite().then(() => loadDevices(true));
+      return;
+    }
     $("dev-count").textContent = "";
     list.innerHTML = `<div class="col-span-full bg-surface-container-lowest rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
       <span class="material-symbols-outlined text-5xl text-outline mb-3">cloud_off</span>
       <div class="font-display font-bold text-xl mb-1">Cannot reach the server.</div>
       <div class="text-sm text-on-surface-variant">${esc(e.message)}<br>Check your connection and tap refresh.</div></div>`;
   }
+}
+// light wake-up used outside a session: just poll health (no status text)
+async function wakeServerLite() {
+  for (let i = 0; i < 10; i++) {
+    try {
+      const r = await fetch(serverBase() + "/api/health", { cache: "no-store" });
+      if (r.ok) return true;
+    } catch {}
+    await new Promise((res) => setTimeout(res, 4000));
+  }
+  return false;
 }
 function renderDeviceList(devices) {
   const list = $("device-list");
@@ -519,10 +542,12 @@ async function fetchLogs(d) {
   logDevice = d;
   $("log-modal").classList.remove("hidden");
   $("log-content").textContent = "Requesting logs from PC…";
-  // join a viewer session to receive the logs
+  // join a viewer session to receive the logs. The get-logs request must
+  // wait for the join to complete — sending it before the socket opened
+  // silently lost it (v9.0 fix via joinHooks).
   try {
-    await startSessionToken(d);
-    callSend({ t: "get-logs" });
+    if (sessionLive && deviceId === d.id && ws && ws.readyState === 1) callSend({ t: "get-logs" });
+    else { joinHooks.push(() => callSend({ t: "get-logs" })); await startSessionToken(d); }
   } catch (e) {
     $("log-content").textContent = "Failed to connect: " + e.message;
   }
@@ -578,26 +603,87 @@ async function startSessionToken(d) {
   if (!token) { enterAuth(); return; }
   startSessionWith(d, { token });
 }
+// v9.0 (Gen-Z edition): the old connect flow opened one WebSocket and gave
+// up on the first error — fatal on Render's free tier, where the relay
+// sleeps and needs ~50s to wake. Now: creds are kept in memory for the
+// session, a failed open triggers a health-ping wake-up + retry, and a
+// mid-session drop auto-reconnects with backoff instead of dying.
+let sessDevice = null, sessCreds = null, sessIntentionalClose = false;
+let wsAttempt = 0, wsReconnectTimer = null, joinHooks = [], sessionLive = false;
+
 function startSessionWith(d, creds) {
+  sessDevice = d; sessCreds = creds;
+  sessIntentionalClose = false; wsAttempt = 0; sessionLive = false;
   deviceId = d.id; deviceName = d.name;
   $("sess-name").textContent = d.name;
   show("scr-session");
-  setStatus("Connecting…");
-  closeWs();
-  ws = new WebSocket(wsUrl());
-  ws.binaryType = "arraybuffer";
-  ws.onopen = () => ws.send(JSON.stringify({ t: "join", id: deviceId, ...creds,
-    name: myProfile.display_name || (sbSignedIn() ? sbSession.email.split("@")[0] : "Guest"),
-    avatar: myProfile.avatar_url || "" }));
-  ws.onmessage = onWsMsg;
-  ws.onclose = () => setStatus("Disconnected.", true);
-  ws.onerror = () => setStatus("Connection error.", true);
   bindCanvasInput();
   ptrs.clear(); gesture = null; gestureActive = false;
   resetZoom();
+  openSessionWs();
 }
-function closeWs() { try { ws && ws.close(); } catch {} ws = null; }
-$("btn-disconnect").onclick = () => { closeWs(); enterDevices(); };
+
+async function wakeServer() {
+  // Poll /api/health until the relay answers (free-tier cold start).
+  for (let i = 0; i < 8; i++) {
+    try {
+      const ctl = new AbortController();
+      const to = setTimeout(() => ctl.abort(), 12000);
+      const r = await fetch(serverBase() + "/api/health", { signal: ctl.signal, cache: "no-store" });
+      clearTimeout(to);
+      if (r.ok) return true;
+    } catch {}
+    if (!sessIntentionalClose) setStatus("Waking the server — free servers nap, up to a minute 😴");
+    await new Promise((res) => setTimeout(res, 4000));
+  }
+  return false;
+}
+
+function openSessionWs() {
+  closeWs();
+  if (sessIntentionalClose || !sessDevice) return;
+  setStatus(wsAttempt ? "Reconnecting…" : "Connecting…");
+  ws = new WebSocket(wsUrl());
+  ws.binaryType = "arraybuffer";
+  let opened = false;
+  ws.onopen = () => {
+    opened = true;
+    ws.send(JSON.stringify({ t: "join", id: sessDevice.id, ...sessCreds,
+      name: myProfile.display_name || (sbSignedIn() ? sbSession.email.split("@")[0] : "Guest"),
+      avatar: myProfile.avatar_url || "" }));
+  };
+  ws.onmessage = onWsMsg;
+  ws.onclose = () => {
+    if (sessIntentionalClose || !sessDevice) return;
+    if (!opened && wsAttempt < 3) {
+      // socket never opened — the relay is almost certainly asleep
+      wsAttempt++;
+      setStatus("Waking the server…");
+      wakeServer().then(() => { if (!sessIntentionalClose) openSessionWs(); });
+      return;
+    }
+    if (wsAttempt < 6) {
+      const delay = [1000, 2000, 4000, 8000, 12000][wsAttempt] || 12000;
+      wsAttempt++;
+      setStatus("Connection dropped — reconnecting…", true);
+      clearTimeout(wsReconnectTimer);
+      wsReconnectTimer = setTimeout(() => { if (!sessIntentionalClose) openSessionWs(); }, delay);
+    } else {
+      setStatus("Disconnected. Tap ✕ and try again.", true);
+    }
+  };
+  ws.onerror = () => { try { ws.close(); } catch {} };
+}
+function closeWs() {
+  if (ws) { ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null; try { ws.close(); } catch {} }
+  ws = null;
+}
+$("btn-disconnect").onclick = () => {
+  sessIntentionalClose = true;
+  clearTimeout(wsReconnectTimer);
+  sessCreds = null; sessDevice = null;
+  closeWs(); enterDevices();
+};
 function setStatus(txt, err) {
   const el = $("sess-status");
   el.textContent = txt;
@@ -613,9 +699,14 @@ function onWsMsg(ev) {
   let m; try { m = JSON.parse(ev.data); } catch { return; }
   if (m.t === "joined") {
     if (!m.online) { setStatus("Device is offline.", true); return; }
+    const wasReconnect = sessionLive || wsAttempt > 0;
+    wsAttempt = 0; sessionLive = true;
     setStatus(""); $("sess-dot").className = "dot on";
     if (m.screen) sizeCanvas(m.screen.w, m.screen.h);
     ws.send(JSON.stringify({ t: "keyframe" })); // ask for a full frame now
+    if (wasReconnect && frameW) toast("Reconnected ⚡");
+    const hooks = joinHooks; joinHooks = [];
+    hooks.forEach((fn) => { try { fn(); } catch {} });
   }
   else if (m.t === "error") setStatus("Error: " + (m.msg || "unknown"), true);
   else if (m.t === "agent_gone") { setStatus("Device went offline.", true); $("sess-dot").className = "dot off"; }
@@ -642,6 +733,7 @@ let pcAudioCtx = null;
 function playPCAudio(pcm) {
   try {
     pcAudioCtx = pcAudioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (pcAudioCtx.state === "suspended") pcAudioCtx.resume(); // autoplay policy can leave it parked
     const n = pcm.length / 2;
     const buf = pcAudioCtx.createBuffer(1, n, 8000);
     const ch = buf.getChannelData(0);
@@ -695,22 +787,30 @@ function resetZoom() {
 }
 window.addEventListener("resize", () => fitCanvas(true));
 
+// Full frames: latest-wins. While a decode is in flight, only the newest
+// waiting frame is kept — older ones are worthless and just add latency.
+let pendingFrame = null;
 async function drawFrame(jpeg) {
-  if (decoding) return; // drop frames while busy (keeps latency low)
+  if (decoding) { pendingFrame = jpeg; return; }
   decoding = true;
   try {
-    const bmp = await createImageBitmap(new Blob([jpeg], { type: "image/jpeg" }));
-    if (canvas.width !== bmp.width || canvas.height !== bmp.height) sizeCanvas(bmp.width, bmp.height);
-    ctx.drawImage(bmp, 0, 0);
-    bmp.close();
+    let cur = jpeg;
+    while (cur) {
+      const bmp = await createImageBitmap(new Blob([cur], { type: "image/jpeg" }));
+      if (canvas.width !== bmp.width || canvas.height !== bmp.height) sizeCanvas(bmp.width, bmp.height);
+      ctx.drawImage(bmp, 0, 0);
+      bmp.close();
+      framesThisSec++;
+      cur = pendingFrame; pendingFrame = null;
+    }
     fitCanvas(); // re-fit if the layout settled after the first frames
     if ($("sess-status").textContent) setStatus("");
-    framesThisSec++;
   } catch {} finally { decoding = false; }
 }
 
 // auto status check: refresh the device list every 15s while on the devices page
 setInterval(() => {
+  if (document.hidden) return; // don't burn battery/data in a background tab
   if ($("page-devices") && !$("page-devices").classList.contains("hidden") && !$("scr-session").classList.contains("active")) loadDevices(true);
 }, 15000);
 
@@ -725,14 +825,36 @@ setInterval(() => {
   framesThisSec = 0;
 }, 2000);
 
-// ---- tiled rendering (v3.0): tiles are composited straight onto the canvas.
+// ---- tiled rendering: tiles are composited straight onto the canvas.
 // Tiles arrive as: 0x03 + uint16BE idx + JPEG. idx = row*cols + col.
-let tileQueue = Promise.resolve();
+// v9.0 zero-lag pass: the old pipeline chained every tile through one
+// promise queue — when tiles arrived faster than they decoded, latency
+// snowballed. Now tiles coalesce in a Map: only the NEWEST tile per cell
+// is kept, stale ones are dropped, and a backlog flood resets to a fresh
+// keyframe instead of seconds of catch-up.
+const tilePending = new Map();
+let tileDraining = false;
 function queueTile(u8) {
-  tileQueue = tileQueue.then(() => drawTile(u8)).catch(() => {});
+  if (!frameW) return; // no keyframe yet — will come shortly
+  const idx = (u8[1] << 8) | u8[2];
+  tilePending.set(idx, u8);
+  if (tilePending.size > 400) {
+    tilePending.clear();
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: "keyframe" }));
+    return;
+  }
+  if (!tileDraining) { tileDraining = true; requestAnimationFrame(drainTiles); }
+}
+async function drainTiles() {
+  try {
+    while (tilePending.size) {
+      const batch = Array.from(tilePending.values());
+      tilePending.clear();
+      for (const t of batch) await drawTile(t);
+    }
+  } catch {} finally { tileDraining = false; }
 }
 async function drawTile(u8) {
-  if (!frameW) return; // no keyframe yet — will come shortly
   const idx = (u8[1] << 8) | u8[2];
   const cols = Math.ceil(frameW / TILE);
   const col = idx % cols, row = Math.floor(idx / cols);
@@ -994,6 +1116,7 @@ function startCallMedia() {
   // mic: downsample to 8kHz mono PCM as binary 0x05
   try {
     callAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (callAudioCtx.state === "suspended") callAudioCtx.resume();
     const src = callAudioCtx.createMediaStreamSource(callStream);
     const len = 4096;
     callAudioNode = callAudioCtx.createScriptProcessor(len, 1, 1);
