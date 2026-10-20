@@ -45,7 +45,7 @@ const FFMPEG = (() => {
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
 
-const MAX_CONCURRENT = 6; // parallel TeraBox connections
+const MAX_CONCURRENT = 10; // parallel TeraBox connections (aria2-style split)
 const PART_SIZE = 2 * 1024 * 1024; // 2 MB parts
 const JOB_TIMEOUT_MS = 40 * 60 * 1000; // 40 min hard cap per job
 
@@ -98,16 +98,33 @@ async function fetchTimeout(url, opts = {}, ms = 25000) {
   }
 }
 
-async function readBuf(res, ms = 30000) {
-  let timer;
-  const guard = new Promise((_, rej) => {
-    timer = setTimeout(() => rej(new Error("body stalled")), ms);
-  });
-  try {
-    return Buffer.from(await Promise.race([res.arrayBuffer(), guard]));
-  } finally {
-    clearTimeout(timer);
+/**
+ * Read a response body with an IDLE timeout: fails only if no bytes arrive
+ * for `idleMs`. TeraBox throttles some connections to a slow drip — the
+ * transfer is healthy as long as bytes keep coming, so a total-time cap
+ * would kill good downloads (this was the "body stalled" failure).
+ */
+async function readBuf(res, idleMs = 45000) {
+  if (!res.body) throw new Error("no body");
+  const reader = res.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    let timer;
+    const timeout = new Promise((_, rej) => {
+      timer = setTimeout(() => rej(new Error("body stalled")), idleMs);
+    });
+    let chunk;
+    try {
+      chunk = await Promise.race([reader.read(), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (chunk.done) break;
+    chunks.push(chunk.value);
+    total += chunk.value.length;
   }
+  return Buffer.concat(chunks, total);
 }
 
 /** True file size via 1-byte range probe (Content-Range). */
@@ -128,7 +145,7 @@ async function probeSize(dlink, ndus) {
   return size;
 }
 
-async function fetchPart(dlink, ndus, start, end, tries = 3) {
+async function fetchPart(dlink, ndus, start, end, tries = 8) {
   const want = end - start + 1;
   let last;
   for (let i = 0; i < tries; i++) {
@@ -149,7 +166,7 @@ async function fetchPart(dlink, ndus, start, end, tries = 3) {
         if (r.body) await r.body.cancel().catch(() => {});
         throw new Error(`part ${start}-${end} -> ${r.status}`);
       }
-      const buf = await readBuf(r, 30000);
+      const buf = await readBuf(r, 45000);
       if (buf.length !== want) throw new Error(`part short: ${buf.length}/${want}`);
       return buf;
     } catch (e) {
