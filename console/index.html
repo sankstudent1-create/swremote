@@ -5,379 +5,222 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>SWRemote — Remote Desktop Dashboard</title>
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#7c3aed">
+<meta name="theme-color" content="#4F46FF">
 <link rel="icon" href="logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="tailwind.css">
-<style>
-  html,body{margin:0;padding:0;}
-  body{font-family:"DM Sans",system-ui,sans-serif;background:#f7fafe;color:#181c1f;-webkit-tap-highlight-color:transparent;}
-  .font-display{font-family:"Outfit",Inter,sans-serif;}
-  ::-webkit-scrollbar{width:10px;height:10px}
-  ::-webkit-scrollbar-thumb{background:#c1c6d5;border-radius:8px;border:2px solid #f7fafe}
-  .material-symbols-outlined{font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24;}
-  /* mobile: sidebar becomes a top bar */
-  #mobilebar{display:none}
-  @media (max-width:1023px){
-    #sidebar{display:none!important}
-    #maincol{padding-left:0!important}
-    #topbar{left:0!important}
-    #mobilebar{display:flex}
-  }
-  /* screens */
-  .screen{display:none; min-height:100dvh; flex-direction:column;}
-  .screen.active{display:flex;}
-  /* session screen (remote viewer) — proven styles */
-  #scr-session{background:#0d1320;}
-  #scr-session .topbar{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 18px;}
-  .session-bar{background:rgba(17,24,38,.92); backdrop-filter:blur(12px); border-bottom:1px solid #1e2a42;}
-  .session-bar .icon-btn{background:#1c2942; color:#cfe0f7;}
-  .sess-title{display:flex; align-items:center; gap:8px; font-weight:700; font-size:15px; min-width:0; color:#eef3fb;}
-  .sess-title #sess-name{white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-  .sess-spacer{width:40px;}
-  .fps-pill{font-size:11px; font-weight:800; color:#7ee2a8; background:rgba(34,163,95,.16); border:1px solid rgba(34,163,95,.4); padding:3px 9px; border-radius:20px; white-space:nowrap;}
-  .stage{flex:1; position:relative; display:flex; align-items:center; justify-content:center; min-height:0; touch-action:none; background:#0d1320; overflow:auto; -webkit-overflow-scrolling:touch;}
-  #zoomwrap{margin:auto; display:flex; align-items:center; justify-content:center; flex:none;}
-  #screen{display:block; touch-action:none; background:#000; border-radius:6px;}
-  .remote-cursor{position:absolute; width:18px; height:18px; pointer-events:none; z-index:5; display:none;}
-  .zoomctl{position:absolute; right:12px; bottom:12px; display:flex; gap:6px; z-index:6; background:rgba(17,24,38,.85); backdrop-filter:blur(8px); border:1px solid #2a3a58; border-radius:14px; padding:5px;}
-  .zoomctl button{background:#22314d; color:#dbe7fa; width:38px; height:38px; padding:0; border-radius:10px; font-size:19px; font-weight:700; line-height:1; border:0; cursor:pointer;}
-  .zoomctl #zoom-label{width:auto; min-width:56px; font-size:12.5px; padding:0 8px;}
-  .sess-status{position:absolute; inset:auto 0 50% 0; transform:translateY(50%); text-align:center; color:#9fb2cc; font-size:14px; pointer-events:none; padding:0 30px;}
-  .sess-status.err{color:#ff9d9d;}
-  .keybar{display:flex; gap:6px; padding:10px 12px; background:#111826; overflow-x:auto; border-top:1px solid #1e2a42;}
-  .keybar button{background:#1e2a3f; color:#dbe7fa; padding:10px 15px; white-space:nowrap; font-weight:600; border:0; border-radius:10px; cursor:pointer;}
-  .kbd-proxy{position:fixed; bottom:0; left:0; width:10px; height:10px; opacity:0; pointer-events:none;}
-  .toolbar{display:flex; background:rgba(17,24,38,.96); backdrop-filter:blur(12px); border-top:1px solid #1e2a42; padding:8px 6px calc(10px + env(safe-area-inset-bottom));}
-  .toolbar button{flex:1; background:none; border:0; color:#aebdd6; display:flex; flex-direction:column; align-items:center; gap:3px; padding:8px 0; border-radius:12px; font-size:11px; font-weight:600; cursor:pointer; transition:background .15s, transform .1s; position:relative;}
-  .toolbar button:active{background:#1e2a3f; transform:scale(.94);}
-  .toolbar button.on{color:#fff;}
-  .toolbar button.on::after{content:""; position:absolute; top:4px; width:5px; height:5px; border-radius:50%; background:#a78bfa;}
-  /* v8.8 meeting mode */
-  #meeting-pips{position:absolute; inset:0; z-index:8; pointer-events:none;}
-  .meeting-pip{position:absolute; width:132px; aspect-ratio:4/3; border-radius:16px; overflow:hidden; background:#16233a; border:2px solid rgba(255,255,255,.22); box-shadow:0 10px 28px rgba(0,0,0,.4); pointer-events:auto;}
-  #meeting-pip-local{left:12px; bottom:12px;}
-  #meeting-pip-pc{right:12px; bottom:12px;}
-  .meeting-pip video,.meeting-pip img{position:absolute; inset:0; width:100%; height:100%; object-fit:cover;}
-  #meeting-pc-demo{object-fit:cover;}
-  .pip-off{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; color:#8fa3c2; font-size:11px; font-weight:600; text-align:center; padding:8px;}
-  .pip-off span:first-child{font-size:26px;}
-  #meeting-pc-avatar{width:44px; height:44px; border-radius:50%; background:linear-gradient(135deg,#7c3aed,#a78bfa); display:flex; align-items:center; justify-content:center; font-size:20px; color:#fff; font-weight:700;}
-  .pip-label{position:absolute; left:8px; bottom:6px; font-size:10px; font-weight:700; color:#fff; background:rgba(0,0,0,.55); padding:2px 8px; border-radius:20px; backdrop-filter:blur(4px);}
-  .pip-mute{position:absolute; top:6px; right:6px; font-size:12px; background:rgba(0,0,0,.55); border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center;}
-  #meeting-bar{background:rgba(17,24,38,.96); border-top:1px solid #1e2a42;}
-  #meeting-bar button{color:#aebdd6;}
-  #meeting-bar button.off{color:#ff9d9d;}
-  #meeting-bar button.off .t-ico{filter:grayscale(.4);}
-  #m-end.end{color:#ff8f8f;}
-  #meeting-timer{display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:800; color:#7ee2a8; background:rgba(34,163,95,.16); border:1px solid rgba(34,163,95,.4); padding:3px 10px; border-radius:20px; white-space:nowrap;}
-  #meeting-timer::before{content:""; width:7px; height:7px; border-radius:50%; background:#22a35f; animation:pulse 2s infinite;}
-  .t-ico{font-size:20px; line-height:1;}
-  .t-label{font-size:10.5px; letter-spacing:.2px;}
-  .sheet{position:fixed; left:0; right:0; bottom:0; max-height:82dvh; background:#fff; z-index:20; display:flex; flex-direction:column; border-radius:22px 22px 0 0; border:1px solid #e7edf5; box-shadow:0 -12px 40px rgba(0,0,0,.25); animation:sheetUp .25s ease;}
-  @keyframes sheetUp{from{transform:translateY(40px); opacity:.5;} to{transform:none; opacity:1;}}
-  @media(min-width:700px){.sheet{left:auto; right:0; top:0; bottom:0; width:380px; border-radius:22px 0 0 22px; max-height:none;}}
-  .sheet-head{display:flex; align-items:center; gap:10px; padding:16px 16px 12px; border-bottom:1px solid #e7edf5; font-size:15px; position:relative;}
-  .sheet-grip{position:absolute; top:7px; left:50%; transform:translateX(-50%); width:40px; height:4px; border-radius:4px; background:#d5dde8;}
-  @media(min-width:700px){.sheet-grip{display:none;}}
-  .sheet-head b{flex:1;}
-  .chat-log{flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:9px; min-height:120px;}
-  .chat-msg{max-width:85%; padding:10px 14px; border-radius:16px; font-size:14.5px; line-height:1.45; animation:riseIn .25s ease both; box-shadow:0 2px 8px rgba(22,35,58,.06);}
-  @keyframes riseIn{from{transform:translateY(8px); opacity:0;} to{transform:none; opacity:1;}}
-  .chat-msg.me{align-self:flex-end; background:linear-gradient(135deg,#7c3aed,#a78bfa); color:#fff; border-bottom-right-radius:6px;}
-  .chat-msg.them{align-self:flex-start; background:#e9f1fd; color:#16233a; border-bottom-left-radius:6px;}
-  .chat-input{display:flex; gap:8px; padding:12px 14px calc(14px + env(safe-area-inset-bottom)); border-top:1px solid #e7edf5;}
-  .chat-input input{flex:1; padding:12px 14px; border:1.5px solid #e7edf5; border-radius:12px; font-size:15px; font-family:inherit;}
-  .chat-input input:focus{outline:none; border-color:#7c3aed;}
-  .chat-input .primary{width:auto; margin:0; padding:12px 20px; background:linear-gradient(135deg,#7c3aed,#a78bfa); color:#fff; border:0; border-radius:12px; font-weight:700; cursor:pointer;}
-  .pad{padding:18px;}
-  .file-drop{display:flex; align-items:center; justify-content:center; gap:8px; border:2px dashed #e7edf5; border-radius:12px; padding:26px; font-size:15px; font-weight:600; color:#1f5fc0; background:#e9f1fd; cursor:pointer; margin:0;}
-  #file-progress{margin-top:12px; font-size:13px; color:#8494ab;}
-  #btn-send-file:disabled{opacity:.45; cursor:default;}
-  .popover{position:fixed; bottom:90px; right:12px; background:#fff; border:1px solid #e7edf5; border-radius:16px; padding:16px; z-index:30; box-shadow:0 8px 28px rgba(22,35,58,.08); width:210px; animation:popIn .2s ease;}
-  @keyframes popIn{from{transform:scale(.95); opacity:0;} to{transform:none; opacity:1;}}
-  .popover label{display:block; font-size:12px; font-weight:600; color:#8494ab; margin:10px 0 5px;}
-  .popover label:first-child{margin-top:0;}
-  .popover select{width:100%; padding:10px; border:1.5px solid #e7edf5; border-radius:10px; font-size:14px; font-family:inherit;}
-  /* modals */
-  .modal{position:fixed; inset:0; background:rgba(15,25,42,.5); backdrop-filter:blur(4px); display:flex; align-items:center; justify-content:center; z-index:70; padding:20px;}
-  .modal-card{background:#fff; border-radius:22px; padding:28px 26px; width:min(380px,100%); border:1px solid rgba(255,255,255,.6); box-shadow:0 24px 60px rgba(22,35,58,.22);}
-  .pin-dev{display:flex; gap:12px; align-items:center; margin-bottom:6px;}
-  .pin-dev b{font-size:16px;}
-  .pin-id{font-size:12.5px; color:#8494ab; letter-spacing:1.5px; margin-top:2px;}
-  #pin-input,#claim-input{width:100%; box-sizing:border-box;}
-  #pin-input{text-align:center; font-size:24px; letter-spacing:8px; font-weight:700; padding:14px; margin-top:14px; border:1.5px solid #e7edf5; border-radius:12px; font-family:inherit;}
-  #pin-input::placeholder{letter-spacing:8px; color:#c3ccd8;}
-  .modal-actions{display:flex; gap:10px; margin-top:18px;}
-  .modal-actions .primary{flex:1.4; background:linear-gradient(135deg,#7c3aed,#a78bfa); color:#fff; border:0; border-radius:12px; padding:13px; font-weight:700; cursor:pointer;}
-  .modal-actions .ghost{flex:1; background:#e9f1fd; color:#1f5fc0; border:0; border-radius:12px; padding:13px; font-weight:700; cursor:pointer;}
-  .logo-img{width:58px; height:58px; border-radius:19px; background:#fff;}
-  .logo-img.sm{width:36px; height:36px; border-radius:11px;}
-  .hint{color:#8494ab; font-size:13px; line-height:1.55; margin:16px 0 0;}
-  /* toast */
-  .toast{position:fixed; left:50%; bottom:28px; transform:translateX(-50%) translateY(20px); background:#16233a; color:#fff; font-size:14px; font-weight:600; padding:12px 20px; border-radius:30px; opacity:0; pointer-events:none; transition:all .25s; z-index:100; box-shadow:0 10px 30px rgba(0,0,0,.25); max-width:90vw; text-align:center; display:flex; align-items:center; gap:9px;}
-  .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
-  .toast::before{content:"✓"; width:22px; height:22px; flex:none; border-radius:50%; background:rgba(255,255,255,.18); display:flex; align-items:center; justify-content:center; font-size:13px;}
-  .dot{width:10px; height:10px; border-radius:50%; display:inline-block; flex:none;}
-  .dot.on{background:#22a35f; box-shadow:0 0 8px rgba(34,163,95,.55); animation:pulse 2s infinite;}
-  .dot.off{background:#c3ccd8;}
-  @keyframes pulse{0%,100%{box-shadow:0 0 8px rgba(34,163,95,.55);} 50%{box-shadow:0 0 2px rgba(34,163,95,.2);}}
-  .icon-btn{background:#e9f1fd; color:#1f5fc0; width:40px; height:40px; padding:0; border:0; border-radius:12px; font-size:18px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; cursor:pointer;}
-  /* auth extras */
-  .auth-input{width:100%;padding:13px 16px;border:1.5px solid #e0e3e7;border-radius:12px;font:inherit;font-size:15px;background:#fff;outline:none;transition:border .15s, box-shadow .15s; box-sizing:border-box;}
-  .auth-input:focus{border-color:#7c3aed;box-shadow:0 0 0 4px rgba(124,58,237,.12)}
-  .hidden{display:none!important}
-</style>
-<link rel="stylesheet" href="genz.css">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Figtree:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400..700,0..1,0&display=block" rel="stylesheet">
+<link rel="stylesheet" href="pocket.css">
 </head>
-<body class="bg-surface text-on-surface antialiased">
-<!-- ================= AUTH ================= -->
-<section id="scr-auth" class="hidden min-h-screen grid place-items-center p-5 relative overflow-hidden">
-  <div class="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-primary-fixed opacity-40 blur-3xl pointer-events-none"></div>
-  <div class="absolute -bottom-32 -left-32 w-96 h-96 rounded-full bg-tertiary-fixed opacity-30 blur-3xl pointer-events-none"></div>
-  <div class="relative w-full max-w-3xl bg-surface-container-lowest rounded-3xl shadow-2xl overflow-hidden grid md:grid-cols-2">
-    <div class="hidden md:flex flex-col justify-between p-10 bg-primary text-on-primary relative overflow-hidden">
-      <div class="absolute -bottom-20 -right-20 w-72 h-72 rounded-full bg-primary-container opacity-50 blur-3xl"></div>
-      <div class="relative">
-        <div class="flex items-center gap-3 mb-10">
-          <img src="logo.png" alt="SWRemote" class="h-11 w-11 rounded-xl bg-white p-1">
-          <span class="font-display font-bold text-xl tracking-tight">SWRemote</span>
-        </div>
-        <h2 class="font-display font-bold text-3xl leading-tight mb-4">Your PC,<br>in your pocket.</h2>
-        <p class="text-on-primary/80 text-sm leading-relaxed">Secure remote desktop for your own machines — and a helping hand for everyone else's.</p>
-      </div>
-      <div class="relative flex flex-col gap-4 text-sm">
-        <div class="flex items-center gap-3"><span class="material-symbols-outlined">bolt</span><span>One-tap connect to your devices</span></div>
-        <div class="flex items-center gap-3"><span class="material-symbols-outlined">lock</span><span>PIN-secured sessions, always</span></div>
-        <div class="flex items-center gap-3"><span class="material-symbols-outlined">smartphone</span><span>Works from any phone or browser</span></div>
-      </div>
+<body>
+
+<!-- ================= AUTH: poster + sheet ================= -->
+<section id="scr-auth" class="auth hidden">
+  <div class="auth-poster">
+    <div class="auth-poster-in">
+      <div class="auth-brand"><img src="logo.png" alt=""><span>SWRemote</span></div>
+      <h2 class="auth-headline">Your PC,<br>in your pocket.</h2>
+      <ul class="auth-perks">
+        <li><span class="mi">bolt</span>One-tap connect</li>
+        <li><span class="mi">lock</span>PIN-secured</li>
+        <li><span class="mi">smartphone</span>Any phone or browser</li>
+      </ul>
     </div>
-    <div class="p-8 md:p-10">
-    <div class="flex md:hidden items-center gap-3 mb-6">
-      <img src="logo.png" alt="SWRemote" class="h-10 w-10 rounded-xl">
-      <span class="font-display font-bold text-xl">SWRemote</span>
+  </div>
+  <div class="auth-sheet">
+    <h1 id="auth-title" class="auth-title">Welcome back</h1>
+    <p id="auth-sub" class="auth-sub">Sign in to see your devices.</p>
+    <div class="auth-form">
+      <input id="auth-name" type="text" class="auth-input hidden" placeholder="Your name" aria-label="Your name" autocomplete="name">
+      <input id="auth-email" type="email" class="auth-input" placeholder="Email address" aria-label="Email address" autocomplete="email">
+      <input id="auth-pass" type="password" class="auth-input" placeholder="Password" aria-label="Password" autocomplete="current-password">
     </div>
-    <h1 id="auth-title" class="font-display font-bold text-2xl mb-1">Welcome back</h1>
-    <p id="auth-sub" class="text-sm text-on-surface-variant mb-6">Sign in to see your devices.</p>
-    <div class="flex flex-col gap-3">
-      <input id="auth-name" type="text" class="auth-input hidden" placeholder="Your name" autocomplete="name">
-      <input id="auth-email" type="email" class="auth-input" placeholder="Email address" autocomplete="email">
-      <input id="auth-pass" type="password" class="auth-input" placeholder="Password" autocomplete="current-password">
-    </div>
-    <p id="auth-err" class="hidden text-sm mt-3 px-3 py-2 rounded-lg bg-error-container text-on-error-container"></p>
-    <button id="btn-auth-go" class="w-full mt-5 py-3.5 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-semibold transition-colors">Sign in</button>
-    <p class="text-sm text-center mt-4 text-on-surface-variant">
+    <p id="auth-err" role="alert"></p>
+    <button id="btn-auth-go" class="btn btn--volt btn--block auth-go">Sign in</button>
+    <p class="auth-switch">
       <span id="auth-toggle-text">New here?</span>
-      <a href="#" id="auth-toggle" class="text-primary font-semibold">Create an account</a>
+      <a href="#" id="auth-toggle" class="link">Create an account</a>
     </p>
-    <div class="flex items-center gap-3 my-5"><div class="flex-1 h-px bg-surface-variant"></div><span class="text-xs text-outline">or</span><div class="flex-1 h-px bg-surface-variant"></div></div>
-    <button id="auth-skip" class="w-full py-3 rounded-xl bg-surface-container-low hover:bg-surface-container text-on-surface font-semibold transition-colors">Continue as guest</button>
-    </div>
+    <div class="auth-or">or</div>
+    <button id="auth-skip" class="btn btn--ghost btn--block">Continue as guest</button>
   </div>
 </section>
 
 <!-- ================= DASHBOARD ================= -->
 <section id="scr-app" class="hidden">
-  <!-- mobile top bar -->
-  <div id="mobilebar" class="fixed top-0 left-0 right-0 z-50 h-16 bg-surface-container-lowest/90 backdrop-blur-xl items-center justify-between px-4 shadow-[0_1px_8px_rgba(0,0,0,0.04)]">
-    <div class="flex items-center gap-2">
-      <img src="logo.png" alt="" class="h-8 w-8 rounded-lg">
-      <span class="font-display font-bold text-lg text-primary tracking-tight">SWRemote</span>
+
+  <!-- floating pods (replaces sidebar + top bar) -->
+  <header id="topbar" class="appbar">
+    <div class="pod brand-pod">
+      <div class="brand"><img src="logo.png" alt=""><span>SWRemote</span></div>
     </div>
-    <nav class="flex items-center gap-1" id="mobile-nav">
-      <button data-page="devices" class="p-2.5 rounded-xl text-primary bg-primary-fixed/40"><span class="material-symbols-outlined">devices</span></button>
-      <button data-page="downloads" class="p-2.5 rounded-xl text-on-surface-variant"><span class="material-symbols-outlined">download</span></button>
-      <button data-page="account" class="p-2.5 rounded-xl text-on-surface-variant"><span class="material-symbols-outlined">manage_accounts</span></button>
+
+    <!-- desktop tabs -->
+    <div class="pod tabs">
+      <nav id="side-nav" class="tabs-nav">
+        <button data-page="devices" class="tab is-on" aria-current="page"><span class="mi">devices</span><span>Devices</span></button>
+        <button data-page="downloads" class="tab"><span class="mi">download</span><span>Downloads</span></button>
+        <button data-page="account" class="tab"><span class="mi">account_circle</span><span>Account</span></button>
+      </nav>
+    </div>
+
+    <!-- id kept: #sidebar now holds relay status + profile chip -->
+    <div id="sidebar" class="pod me-pod">
+      <span id="relay-pill" class="chip-relay"><span id="side-relay-text" class="chip-txt">Connecting…</span></span>
+      <button id="btn-refresh" class="icon-btn" title="Refresh" aria-label="Refresh devices"><span class="mi">refresh</span></button>
+      <div class="chip-me">
+        <div id="side-avatar" class="chip-av">?</div>
+        <div class="chip-who"><b id="side-user-name">Guest</b><span id="side-user-sub">Not signed in</span></div>
+      </div>
+    </div>
+  </header>
+
+  <main id="maincol" class="shell">
+
+    <!-- ============ DEVICES ============ -->
+    <div id="page-devices">
+      <section class="deck">
+        <div class="deck-head">
+          <div>
+            <h1 class="deck-title">My devices</h1>
+            <p class="deck-sub">Your PCs, anywhere — tap one to take control.</p>
+            <span id="dev-count" class="sticker"></span>
+          </div>
+          <button id="btn-refresh-m" class="icon-btn" title="Refresh" aria-label="Refresh devices"><span class="mi">refresh</span></button>
+        </div>
+        <div class="cmd">
+          <label class="search">
+            <span class="mi">search</span>
+            <input id="dev-search" type="search" placeholder="Search" aria-label="Search devices" autocomplete="off">
+          </label>
+          <button id="btn-claim" class="btn btn--zest hidden"><span class="mi">add</span><span>Add device</span></button>
+        </div>
+      </section>
+
+      <div id="device-list" class="grid"></div>
+
+      <div id="manual-join" class="panel hidden">
+        <h3>Connect with ID + PIN</h3>
+        <p>Helping someone without an account? Ask for their ID + PIN.</p>
+        <div class="join-row">
+          <input id="manual-id" inputmode="numeric" placeholder="Device ID" aria-label="Device ID" class="auth-input">
+          <button id="btn-manual" class="btn btn--volt">Go</button>
+        </div>
+      </div>
+
+      <section id="how-card" class="how">
+        <h2 class="sect-title">How it works</h2>
+        <ol class="steps">
+          <li class="step"><span class="step-n">1</span><span><b>On the PC:</b> open <b>SWRemote-Agent.exe</b> — a window shows its ID and PIN.</span></li>
+          <li class="step"><span class="step-n">2</span><span><b>Claim it:</b> tap <b>Add device</b> and enter the link code from the PC app.</span></li>
+          <li class="step"><span class="step-n">3</span><span><b>Connect:</b> tap a device — you're signed in on both sides.</span></li>
+        </ol>
+        <p class="how-foot" id="acct-row"></p>
+      </section>
+    </div>
+
+    <!-- ============ DOWNLOADS ============ -->
+    <div id="page-downloads" class="hidden">
+      <div class="page-head">
+        <h1 class="page-title">Downloads</h1>
+        <p class="page-sub">Pick the right app for the PC you want to control.</p>
+        <span id="dl-version" class="badge"></span>
+      </div>
+      <div class="dl-grid">
+        <article class="dl">
+          <div class="dl-top">
+            <span class="dl-rec">Recommended</span>
+            <span class="dl-ico mi">download</span>
+            <h3 class="dl-name">SWRemote Setup</h3>
+          </div>
+          <div class="dl-body">
+            <p>Best for your own PCs. Guided installer with Start Menu shortcuts, an auto-start option and easy updates.</p>
+            <a href="/download/setup" class="btn btn--volt btn--block">Download Setup.exe</a>
+            <div class="dl-meta" id="dl-setup-meta"></div>
+          </div>
+        </article>
+        <article class="dl dl--agent">
+          <div class="dl-top">
+            <span class="dl-ico mi">devices</span>
+            <h3 class="dl-name">SWRemote Agent</h3>
+          </div>
+          <div class="dl-body">
+            <p>One file, no install. Double-click and share the ID + PIN — perfect for helping someone quickly.</p>
+            <a href="/download/agent" class="btn btn--zest btn--block">Download Agent.exe</a>
+            <div class="dl-meta" id="dl-agent-meta"></div>
+          </div>
+        </article>
+      </div>
+
+      <div class="picks">
+        <div class="pick"><span class="mi">computer</span><span><b>Your own computer?</b><br>Get <b>Setup.exe</b>. It installs once and stays updated.</span></div>
+        <div class="pick"><span class="mi">support_agent</span><span><b>Helping someone else?</b><br>Send them <b>Agent.exe</b>. They run it and give you the ID + PIN.</span></div>
+      </div>
+
+      <div class="row-card">
+        <div>
+          <h3>Not seeing the latest version?</h3>
+          <p>Clear this site's saved cache and reload fresh to pick up the newest console.</p>
+        </div>
+        <button id="btn-clear-cache" class="btn btn--ghost">Clear cache &amp; reload</button>
+      </div>
+    </div>
+
+    <!-- ============ ACCOUNT ============ -->
+    <div id="page-account" class="hidden">
+      <div class="page-head page-head--narrow">
+        <h1 class="page-title">Account</h1>
+        <p class="page-sub">Your SWRemote identity</p>
+      </div>
+      <div id="account-card"></div>
+    </div>
+
+  </main>
+
+  <!-- mobile dock (replaces mobile top-bar nav) -->
+  <div id="mobilebar" class="dock">
+    <nav id="mobile-nav">
+      <button data-page="devices" class="tab is-on" aria-current="page"><span class="mi">devices</span><span>Devices</span></button>
+      <button data-page="downloads" class="tab"><span class="mi">download</span><span>Downloads</span></button>
+      <button data-page="account" class="tab"><span class="mi">account_circle</span><span>Account</span></button>
     </nav>
   </div>
-
-  <!-- sidebar -->
-  <aside id="sidebar" class="fixed left-0 top-0 h-full w-64 bg-surface-container-lowest shadow-[0_1px_8px_rgba(0,0,0,0.04)] z-50 flex flex-col justify-between">
-    <div class="flex flex-col">
-      <div class="h-16 px-6 flex items-center gap-3">
-        <img src="logo.png" alt="SWRemote" class="h-9 w-9 rounded-xl">
-        <span class="font-display font-bold text-xl text-primary tracking-tight">SWRemote</span>
-      </div>
-      <div class="px-4 pt-4">
-        <div class="px-3 pb-2 text-[11px] font-semibold text-outline uppercase tracking-wider">Navigation</div>
-        <nav class="flex flex-col gap-1" id="side-nav">
-          <button data-page="devices" class="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-primary-container text-on-primary-container font-medium text-sm transition-colors"><span class="material-symbols-outlined text-xl">devices</span><span>Devices</span></button>
-          <button data-page="downloads" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-on-surface-variant font-medium text-sm hover:bg-surface-container transition-colors"><span class="material-symbols-outlined text-xl">download</span><span>Downloads</span></button>
-          <button data-page="account" class="flex items-center gap-3 px-4 py-2.5 rounded-xl text-on-surface-variant font-medium text-sm hover:bg-surface-container transition-colors"><span class="material-symbols-outlined text-xl">manage_accounts</span><span>Account</span></button>
-        </nav>
-      </div>
-    </div>
-    <div class="p-4 flex flex-col gap-3">
-      <div class="p-4 rounded-2xl bg-gradient-to-br from-primary-fixed to-tertiary-fixed relative overflow-hidden">
-        <div class="absolute -right-4 -bottom-4 w-24 h-24 rounded-full bg-white/20 blur-xl"></div>
-        <div class="relative">
-          <div class="flex items-center gap-2 mb-1">
-            <span class="material-symbols-outlined text-lg text-primary">bolt</span>
-            <span class="text-xs font-bold text-primary uppercase tracking-wider">Relay status</span>
-          </div>
-          <div class="text-sm font-semibold text-on-surface" id="side-relay-text">Connecting…</div>
-        </div>
-      </div>
-      <div class="p-3 rounded-xl bg-surface-container-low flex items-center gap-3">
-        <div class="w-9 h-9 rounded-full bg-primary text-on-primary grid place-items-center font-bold shrink-0" id="side-avatar">?</div>
-        <div class="flex flex-col min-w-0 flex-1">
-          <span class="font-medium text-sm text-on-surface truncate leading-tight" id="side-user-name">Guest</span>
-          <span class="text-xs text-on-surface-variant truncate" id="side-user-sub">Not signed in</span>
-        </div>
-      </div>
-    </div>
-  </aside>
-
-  <!-- main column -->
-  <div id="maincol" class="pl-64">
-    <header id="topbar" class="fixed top-0 left-64 right-0 h-16 bg-surface/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)] z-40 flex items-center justify-between px-8 max-lg:hidden">
-      <div class="flex items-center gap-4 flex-1 max-w-md">
-        <div class="w-full flex items-center gap-2 bg-surface-container-lowest px-4 py-2 rounded-xl shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
-          <span class="material-symbols-outlined text-outline text-lg">search</span>
-          <input id="dev-search" class="w-full bg-transparent border-0 outline-none text-sm placeholder:text-outline" placeholder="Search devices…" type="text">
-        </div>
-      </div>
-      <div class="flex items-center gap-3">
-        <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface-container-low">
-          <span class="w-2 h-2 rounded-full bg-tertiary animate-pulse"></span>
-          <span class="text-[11px] font-semibold text-tertiary" id="relay-pill">Relay</span>
-        </div>
-        <button id="btn-refresh" class="w-9 h-9 rounded-xl flex items-center justify-center text-on-surface-variant hover:bg-surface-container transition-colors" title="Refresh"><span class="material-symbols-outlined text-xl">refresh</span></button>
-      </div>
-    </header>
-
-    <main class="relative w-full pt-16 bg-surface min-h-screen max-lg:pt-16">
-      <div class="flex flex-col w-full">
-        <div class="px-8 py-6 flex flex-col gap-6 max-w-7xl w-full mx-auto max-lg:px-4">
-
-          <!-- ============ DEVICES PAGE ============ -->
-          <div id="page-devices">
-            <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-6">
-              <div>
-                <div class="flex items-center gap-2 mb-1">
-                  <span class="text-[11px] font-bold uppercase tracking-widest text-primary">Your computers</span>
-                  <span class="w-1.5 h-1.5 rounded-full bg-outline-variant"></span>
-                  <span class="text-[11px] text-on-surface-variant" id="dev-count"></span>
-                </div>
-                <h1 class="font-display font-bold text-4xl tracking-tight">My devices</h1>
-                <p class="text-sm text-on-surface-variant mt-1">Your PCs, anywhere — tap one to take control.</p>
-              </div>
-              <button id="btn-claim" class="hidden items-center gap-2 px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-semibold text-sm shadow-sm transition-all hover:-translate-y-0.5">
-                <span class="material-symbols-outlined text-lg">add_circle</span><span>Add device</span>
-              </button>
-              <button id="btn-refresh-m" class="lg:hidden w-10 h-10 rounded-xl flex items-center justify-center text-on-surface-variant bg-surface-container-lowest shadow-sm" title="Refresh"><span class="material-symbols-outlined text-xl">refresh</span></button>
-            </div>
-
-            <div id="device-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5"></div>
-
-            <div id="manual-join" class="hidden mt-6 bg-surface-container-lowest rounded-2xl p-6 shadow-sm">
-              <h3 class="font-display font-bold text-lg mb-1">Connect with ID + PIN</h3>
-              <p class="text-sm text-on-surface-variant mb-4">Helping someone without an account? Ask for their ID + PIN.</p>
-              <div class="flex gap-2 max-w-md">
-                <input id="manual-id" inputmode="numeric" placeholder="Device ID" class="auth-input !w-auto flex-1">
-                <button id="btn-manual" class="px-6 rounded-xl bg-primary text-on-primary font-semibold">Go</button>
-              </div>
-            </div>
-
-            <div class="mt-6 bg-surface-container-lowest rounded-2xl p-6 shadow-sm" id="how-card">
-              <h3 class="font-display font-bold text-lg mb-3">How it works</h3>
-              <ol class="text-sm text-on-surface-variant flex flex-col gap-2 list-none p-0 m-0">
-                <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-secondary-container text-primary text-xs font-bold grid place-items-center shrink-0">1</span><span><b class="text-on-surface">On the PC:</b> open <b class="text-on-surface">SWRemote-Agent.exe</b> — a window shows its ID and PIN.</span></li>
-                <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-secondary-container text-primary text-xs font-bold grid place-items-center shrink-0">2</span><span><b class="text-on-surface">Claim it:</b> tap <b class="text-on-surface">Add device</b> and enter the link code from the PC app.</span></li>
-                <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-secondary-container text-primary text-xs font-bold grid place-items-center shrink-0">3</span><span><b class="text-on-surface">Connect:</b> tap a device — you're signed in on both sides.</span></li>
-              </ol>
-              <p class="text-sm mt-4 text-on-surface-variant" id="acct-row"></p>
-            </div>
-          </div>
-
-          <!-- ============ DOWNLOADS PAGE ============ -->
-          <div id="page-downloads" class="hidden">
-            <div class="mb-6">
-              <h1 class="font-display font-bold text-4xl tracking-tight">Downloads</h1>
-              <p class="text-sm text-on-surface-variant mt-1" id="dl-version"></p>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
-              <div class="bg-surface-container-lowest rounded-2xl p-6 shadow-sm flex flex-col">
-                <div class="p-3.5 rounded-2xl bg-secondary-container text-primary mb-4 w-fit"><span class="material-symbols-outlined text-3xl">download</span></div>
-                <h3 class="font-display font-bold text-xl mb-2">SWRemote Setup</h3>
-                <p class="text-sm text-on-surface-variant leading-relaxed mb-6 flex-1">Recommended for your own PCs. Guided installer — Start Menu shortcuts, auto-start option, easy updates.</p>
-                <a href="/download/setup" class="block text-center py-3 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-semibold transition-colors">Download Setup.exe</a>
-                <p class="mt-3 text-xs text-outline text-center" id="dl-setup-meta"></p>
-              </div>
-              <div class="bg-surface-container-lowest rounded-2xl p-6 shadow-sm flex flex-col">
-                <div class="p-3.5 rounded-2xl bg-secondary-container text-primary mb-4 w-fit"><span class="material-symbols-outlined text-3xl">devices</span></div>
-                <h3 class="font-display font-bold text-xl mb-2">SWRemote Agent</h3>
-                <p class="text-sm text-on-surface-variant leading-relaxed mb-6 flex-1">Single file, no install. Double-click and share the ID + PIN — perfect for helping someone quickly.</p>
-                <a href="/download/agent" class="block text-center py-3 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-semibold transition-colors">Download Agent.exe</a>
-                <p class="mt-3 text-xs text-outline text-center" id="dl-agent-meta"></p>
-              </div>
-            </div>
-            <div class="bg-surface-container-lowest rounded-2xl p-6 shadow-sm mb-6 flex flex-col sm:flex-row sm:items-center gap-4">
-              <div class="p-3.5 rounded-2xl bg-secondary-container text-primary w-fit shrink-0"><span class="material-symbols-outlined text-3xl">refresh</span></div>
-              <div class="flex-1">
-                <h3 class="font-display font-bold text-lg">Not seeing the latest version?</h3>
-                <p class="text-sm text-on-surface-variant">Clear this site's saved cache and reload fresh — picks up the newest console instantly.</p>
-              </div>
-              <button id="btn-clear-cache" class="px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-container text-on-primary font-semibold text-sm shadow-sm transition-all whitespace-nowrap">Clear cache &amp; reload</button>
-            </div>
-            <div class="bg-surface-container-lowest rounded-2xl p-6 shadow-sm">
-              <h3 class="font-display font-bold text-lg mb-3">Which one do I need?</h3>
-              <ol class="text-sm text-on-surface-variant flex flex-col gap-2 list-none p-0 m-0">
-                <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-secondary-container text-primary text-xs font-bold grid place-items-center shrink-0">1</span><span><b class="text-on-surface">Your own computer</b> → <b class="text-on-surface">Setup.exe</b>: installs once, stays updated.</span></li>
-                <li class="flex gap-3"><span class="w-6 h-6 rounded-full bg-secondary-container text-primary text-xs font-bold grid place-items-center shrink-0">2</span><span><b class="text-on-surface">Helping someone else</b> → send them <b class="text-on-surface">Agent.exe</b>: they run it, give you the ID + PIN, done.</span></li>
-              </ol>
-            </div>
-          </div>
-
-          <!-- ============ ACCOUNT PAGE ============ -->
-          <div id="page-account" class="hidden">
-            <div class="mb-6">
-              <h1 class="font-display font-bold text-4xl tracking-tight">Account</h1>
-              <p class="text-sm text-on-surface-variant mt-1">Your SWRemote identity</p>
-            </div>
-            <div class="bg-surface-container-lowest rounded-2xl p-6 shadow-sm max-w-2xl" id="account-card"></div>
-          </div>
-
-        </div>
-      </div>
-    </main>
-  </div>
 </section>
+
 <!-- ================= SESSION ================= -->
 <section id="scr-session" class="screen">
-  <header class="topbar session-bar">
-    <button id="btn-disconnect" class="icon-btn" title="Disconnect">✕</button>
+  <header class="session-bar">
+    <button id="btn-disconnect" class="icon-btn" title="Disconnect" aria-label="Disconnect"><span class="mi">close</span></button>
     <div class="sess-title"><span id="sess-dot" class="dot"></span><span id="sess-name">—</span><span id="sess-fps" class="fps-pill"></span></div>
     <div class="sess-spacer"></div>
   </header>
+
   <div class="stage">
     <div id="zoomwrap"><canvas id="screen"></canvas><div id="cursor" class="remote-cursor"></div></div>
     <div id="sess-status" class="sess-status">Connecting…</div>
     <div id="zoomctl" class="zoomctl">
-      <button id="zoom-out" title="Zoom out">−</button>
+      <button id="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
       <button id="zoom-label" title="Reset zoom">100%</button>
-      <button id="zoom-in" title="Zoom in">+</button>
+      <button id="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
     </div>
-    <!-- Meeting mode: camera PiPs over the shared screen -->
+    <!-- Meeting mode: portrait camera PiPs, top-right, over the shared screen -->
     <div id="meeting-pips" class="hidden">
       <div id="meeting-pip-local" class="meeting-pip">
         <video id="meeting-local-video" autoplay playsinline muted></video>
-        <div id="meeting-local-off" class="pip-off hidden"><span>📷</span><span>Camera off</span></div>
+        <div id="meeting-local-off" class="pip-off hidden"><span class="mi">videocam_off</span><span>Camera off</span></div>
         <span class="pip-label">You</span>
-        <span id="meeting-local-mute" class="pip-mute hidden">🔇</span>
+        <span id="meeting-local-mute" class="pip-mute hidden"><span class="mi">mic_off</span></span>
       </div>
       <div id="meeting-pip-pc" class="meeting-pip">
         <img id="meeting-pc-demo" src="demo-cam.svg" alt="Demo camera">
-        <div id="meeting-pc-off" class="pip-off hidden"><div id="meeting-pc-avatar">💻</div><span id="meeting-pc-msg">PC camera…</span></div>
+        <div id="meeting-pc-off" class="pip-off hidden"><div id="meeting-pc-avatar"><span class="mi">computer</span></div><span id="meeting-pc-msg">PC camera…</span></div>
         <img id="meeting-pc-video" class="hidden" alt="">
         <span class="pip-label">PC camera</span>
       </div>
     </div>
   </div>
+
   <div id="keybar" class="keybar hidden">
     <button data-key="esc">Esc</button><button data-key="tab">Tab</button>
     <button data-key="win">Win</button><button data-key="up">▲</button>
@@ -385,37 +228,39 @@
     <button data-key="right">▶</button><button data-key="delete">Del</button>
     <button data-key="enter">Enter</button>
   </div>
+
   <nav class="toolbar" id="session-toolbar">
-    <button id="btn-kbd" title="Keyboard"><span class="t-ico">⌨</span><span class="t-label">Keys</span></button>
-    <button id="btn-chat" title="Chat"><span class="t-ico">💬</span><span class="t-label">Chat</span></button>
-    <button id="btn-files" title="Send file"><span class="t-ico">📁</span><span class="t-label">Files</span></button>
-    <button id="btn-quality" title="Quality"><span class="t-ico">⚙</span><span class="t-label">Quality</span></button>
-    <button id="btn-call" title="Start meeting"><span class="t-ico">📹</span><span class="t-label">Meet</span></button>
-    <button id="btn-full" title="Fullscreen"><span class="t-ico">⛶</span><span class="t-label">Full</span></button>
-    <button id="btn-lock" title="Lock PC"><span class="t-ico">🔒</span><span class="t-label">Lock</span></button>
+    <button id="btn-kbd" title="Keyboard"><span class="mi t-ico">keyboard</span><span class="t-label">Keys</span></button>
+    <button id="btn-chat" title="Chat"><span class="mi t-ico">chat_bubble</span><span class="t-label">Chat</span></button>
+    <button id="btn-files" title="Send file"><span class="mi t-ico">folder</span><span class="t-label">Files</span></button>
+    <button id="btn-quality" title="Quality"><span class="mi t-ico">tune</span><span class="t-label">Quality</span></button>
+    <button id="btn-call" title="Start meeting"><span class="mi t-ico">videocam</span><span class="t-label">Meet</span></button>
+    <button id="btn-full" title="Fullscreen"><span class="mi t-ico">fullscreen</span><span class="t-label">Full</span></button>
+    <button id="btn-lock" title="Lock PC"><span class="mi t-ico">lock</span><span class="t-label">Lock</span></button>
   </nav>
+
   <!-- Meeting control bar (replaces toolbar during a meeting) -->
   <nav id="meeting-bar" class="toolbar meeting-bar hidden">
-    <button id="m-mic" title="Mute yourself"><span class="t-ico">🎤</span><span class="t-label">Mic</span></button>
-    <button id="m-cam" title="Your camera"><span class="t-ico">📷</span><span class="t-label">Camera</span></button>
-    <button id="m-pc-mic" title="PC microphone"><span class="t-ico">🔇</span><span class="t-label">PC mic</span></button>
-    <button id="m-pc-cam" title="PC camera"><span class="t-ico">🖥️</span><span class="t-label">PC cam</span></button>
-    <button id="m-chat" title="Chat"><span class="t-ico">💬</span><span class="t-label">Chat</span></button>
-    <button id="m-end" title="End meeting" class="end"><span class="t-ico">📵</span><span class="t-label">End</span></button>
+    <button id="m-mic" title="Mute yourself"><span class="mi t-ico">mic</span><span class="t-label">Mic</span></button>
+    <button id="m-cam" title="Your camera"><span class="mi t-ico">videocam</span><span class="t-label">Camera</span></button>
+    <button id="m-pc-mic" title="PC microphone"><span class="mi t-ico">settings_voice</span><span class="t-label">PC mic</span></button>
+    <button id="m-pc-cam" title="PC camera"><span class="mi t-ico">desktop_windows</span><span class="t-label">PC cam</span></button>
+    <button id="m-chat" title="Chat"><span class="mi t-ico">chat_bubble</span><span class="t-label">Chat</span></button>
+    <button id="m-end" title="End meeting" class="end"><span class="mi t-ico">call_end</span><span class="t-label">End</span></button>
   </nav>
   <input id="kbd-proxy" class="kbd-proxy" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
 
   <aside id="chat-panel" class="sheet hidden">
-    <div class="sheet-head"><div class="sheet-grip"></div><b>Chat with this PC</b><button class="icon-btn" data-close="chat-panel">✕</button></div>
+    <div class="sheet-head"><div class="sheet-grip"></div><b>Chat with this PC</b><button class="icon-btn" data-close="chat-panel" aria-label="Close"><span class="mi">close</span></button></div>
     <div id="chat-log" class="chat-log"></div>
-    <div class="chat-input"><input id="chat-text" placeholder="Type a message…" maxlength="500"><button id="chat-send" class="primary">Send</button></div>
+    <div class="chat-input"><input id="chat-text" placeholder="Type a message" aria-label="Message" maxlength="500"><button id="chat-send" class="primary">Send</button></div>
   </aside>
 
   <aside id="files-panel" class="sheet hidden">
-    <div class="sheet-head"><div class="sheet-grip"></div><b>Send file to this PC</b><button class="icon-btn" data-close="files-panel">✕</button></div>
+    <div class="sheet-head"><div class="sheet-grip"></div><b>Send file to this PC</b><button class="icon-btn" data-close="files-panel" aria-label="Close"><span class="mi">close</span></button></div>
     <div class="pad">
-      <label class="file-drop" for="file-input">📁 Choose a file…<input id="file-input" type="file" hidden></label>
-      <button id="btn-send-file" class="primary" disabled style="width:100%; margin-top:12px; background:linear-gradient(135deg,#7c3aed,#a78bfa); color:#fff; border:0; border-radius:12px; padding:13px; font-weight:700; cursor:pointer;">Send</button>
+      <label class="file-drop" for="file-input"><span class="mi">upload_file</span>Choose a file<input id="file-input" type="file" hidden></label>
+      <button id="btn-send-file" class="btn btn--volt btn--block" disabled>Send</button>
       <div id="file-progress"></div>
       <p class="hint">Received files land in <b>Downloads\SWRemote</b> on the PC.</p>
     </div>
@@ -432,23 +277,23 @@
 <!-- CLAIM modal -->
 <div id="claim-modal" class="modal hidden">
   <div class="modal-card">
-    <div class="pin-dev"><img class="logo-img sm" src="logo.png" alt=""><div><b>Claim a device</b><div class="pin-id">ENTER THE CODE FROM THE PC APP</div></div></div>
-    <input id="claim-input" type="text" inputmode="text" maxlength="12" placeholder="ABC123" autocomplete="off" style="text-align:center; font-size:24px; letter-spacing:6px; font-weight:700; padding:14px; margin-top:14px; text-transform:uppercase;">
+    <div class="modal-head"><img class="logo-img sm" src="logo.png" alt=""><div><b>Claim a device</b><div class="modal-sub">Enter the code from the PC app</div></div></div>
+    <input id="claim-input" class="code-input" type="text" inputmode="text" maxlength="12" placeholder="ABC123" aria-label="Link code" autocomplete="off">
     <p class="hint">On the PC, the code is shown in the SWRemote window under "Link this device".</p>
     <div class="modal-actions">
-      <button id="claim-cancel" class="ghost">Cancel</button>
-      <button id="claim-ok" class="primary">Claim</button>
+      <button id="claim-cancel" class="btn btn--ghost">Cancel</button>
+      <button id="claim-ok" class="btn btn--volt">Claim</button>
     </div>
   </div>
 </div>
 
-<!-- Logs modal (v8.1) -->
+<!-- Logs modal -->
 <div id="log-modal" class="modal hidden">
-  <div class="modal-card" style="max-width:640px;">
-    <div class="pin-dev"><span class="material-symbols-outlined text-2xl text-primary">description</span><div><b>PC logs</b><div class="pin-id">AGENT.LOG FROM THE PC</div></div></div>
-    <pre id="log-content" style="background:#0f172a;color:#a5f3fc;font-size:11px;line-height:1.5;padding:12px;border-radius:12px;max-height:50vh;overflow:auto;white-space:pre-wrap;word-break:break-all;margin-top:12px;">Loading…</pre>
+  <div class="modal-card modal-card--wide">
+    <div class="modal-head"><span class="modal-ico mi">description</span><div><b>PC logs</b><div class="modal-sub">agent.log from the PC</div></div></div>
+    <pre id="log-content" class="logbox">Loading…</pre>
     <div class="modal-actions">
-      <button id="log-close" class="primary">Close</button>
+      <button id="log-close" class="btn btn--volt">Close</button>
     </div>
   </div>
 </div>
@@ -456,16 +301,16 @@
 <!-- PIN modal -->
 <div id="pin-modal" class="modal hidden">
   <div class="modal-card">
-    <div class="pin-dev"><img class="logo-img sm" src="logo.png" alt=""><div><b id="pin-title">Enter PIN</b><div class="pin-id" id="pin-devid"></div></div></div>
-    <input id="pin-input" type="password" inputmode="numeric" maxlength="32" placeholder="••••••" autocomplete="off">
+    <div class="modal-head"><img class="logo-img sm" src="logo.png" alt=""><div><b id="pin-title">Enter PIN</b><div class="modal-sub" id="pin-devid"></div></div></div>
+    <input id="pin-input" class="code-input" type="password" inputmode="numeric" maxlength="32" placeholder="••••••" aria-label="PIN" autocomplete="off">
     <div class="modal-actions">
-      <button id="pin-cancel" class="ghost">Cancel</button>
-      <button id="pin-ok" class="primary">Connect</button>
+      <button id="pin-cancel" class="btn btn--ghost">Cancel</button>
+      <button id="pin-ok" class="btn btn--volt">Connect</button>
     </div>
   </div>
 </div>
 
-<div id="toast" class="toast"></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script src="app.js"></script>
 </body>

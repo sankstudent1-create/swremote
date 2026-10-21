@@ -35,14 +35,10 @@ async function boot() {
 }
 /* ---------- Dashboard navigation (Stitch edition) ---------- */
 function navTo(page) {
-  document.querySelectorAll("#side-nav button").forEach((b) => {
+  document.querySelectorAll("#side-nav button, #mobile-nav button").forEach((b) => {
     const on = b.dataset.page === page;
-    b.className = "flex items-center gap-3 px-4 py-2.5 rounded-xl font-medium text-sm transition-colors " +
-      (on ? "bg-primary-container text-on-primary-container" : "text-on-surface-variant hover:bg-surface-container");
-  });
-  document.querySelectorAll("#mobile-nav button").forEach((b) => {
-    const on = b.dataset.page === page;
-    b.className = "p-2.5 rounded-xl " + (on ? "text-primary bg-primary-fixed/40" : "text-on-surface-variant");
+    b.classList.toggle("is-on", on);
+    if (on) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
   });
   ["devices", "downloads", "account"].forEach((p) => $("page-" + p).classList.toggle("hidden", p !== page));
   if (page === "downloads") loadDownloadMeta();
@@ -76,10 +72,11 @@ async function loadProfile() {
     if (Array.isArray(j) && j[0]) myProfile = { display_name: j[0].display_name || "", avatar_url: j[0].avatar_url || "" };
   } catch {}
 }
-function avatarHTML(size, cls) {
-  if (myProfile.avatar_url) return `<img src="${esc(myProfile.avatar_url)}" class="${cls} rounded-full object-cover shrink-0" style="width:${size}px;height:${size}px" alt="">`;
+function avatarHTML(size) {
+  const box = `width:${size}px;height:${size}px`;
+  if (myProfile.avatar_url) return `<img src="${esc(myProfile.avatar_url)}" class="avatar" style="${box}" alt="">`;
   const ch = (myProfile.display_name || sbSession?.email || "?")[0].toUpperCase();
-  return `<div class="${cls} rounded-full bg-primary text-on-primary grid place-items-center font-bold shrink-0" style="width:${size}px;height:${size}px">${esc(ch)}</div>`;
+  return `<div class="avatar" style="${box};font-size:${Math.round(size * 0.42)}px">${esc(ch)}</div>`;
 }
 async function uploadAvatar(file) {
   const token = await sbToken();
@@ -110,32 +107,42 @@ function renderAccountPage() {
   const signed = sbOn() && sbSignedIn();
   const dname = myProfile.display_name || (signed ? sbSession.email.split("@")[0] : "");
   c.innerHTML = `
-    <div class="flex flex-col items-center text-center mb-6">
-      <div class="relative mb-4">
-        ${avatarHTML(88, "text-4xl")}
-        ${signed ? `<label class="absolute -bottom-1 -right-1 w-9 h-9 rounded-full bg-primary text-on-primary grid place-items-center cursor-pointer shadow-lg hover:scale-105 transition-transform" title="Change picture">
-          <span class="material-symbols-outlined text-lg">photo_camera</span>
+    <div class="me-cover"></div>
+    <div class="me-id">
+      <div class="me-av">
+        ${avatarHTML(108)}
+        ${signed ? `<label class="me-cam" title="Change picture" aria-label="Change picture">
+          <span class="mi">photo_camera</span>
           <input type="file" id="avatar-file" accept="image/*" class="hidden">
         </label>` : ""}
       </div>
-      ${signed ? `<input id="acct-name" class="auth-input font-display font-bold text-2xl text-center mb-1" value="${esc(dname)}" placeholder="Your name">`
-               : `<div class="font-display font-bold text-2xl mb-1">Guest</div>`}
-      <div class="text-sm text-on-surface-variant">${signed ? esc(sbSession.email) : "Browsing without an account"}</div>
-      ${signed && myProfile.avatar_url ? `<div class="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-tertiary-fixed text-on-tertiary-fixed-variant text-xs font-semibold"><span class="material-symbols-outlined text-sm">verified</span>Profile complete</div>` : ""}
+      ${signed
+        ? `<input id="acct-name" class="auth-input me-name" value="${esc(dname)}" placeholder="Your name" aria-label="Your name">`
+        : `<h2 class="me-name-static">Guest</h2>`}
+      <p class="me-mail">${signed ? esc(sbSession.email) : "Browsing without an account"}</p>
+      ${signed && myProfile.avatar_url ? `<span class="me-tag"><span class="mi">verified</span>Profile complete</span>` : ""}
     </div>
-    ${signed ? `<button id="btn-save-profile" class="w-full py-3.5 rounded-2xl bg-primary hover:bg-primary-container text-on-primary font-semibold transition-all hover:-translate-y-0.5 shadow-sm mb-3">Save profile</button>` : ""}
-    ${signed
-      ? `<button id="btn-signout2" class="w-full py-3 rounded-2xl bg-surface-container-low hover:bg-surface-container font-semibold transition-colors">Sign out</button>`
-      : `<button id="btn-signin2" class="w-full py-3.5 rounded-2xl bg-primary hover:bg-primary-container text-on-primary font-semibold transition-all hover:-translate-y-0.5 shadow-sm">Sign in / create account</button>`}
-    <div class="mt-6 pt-6 border-t border-surface-variant">
-      <div class="text-[11px] font-semibold text-outline uppercase tracking-wider mb-2">Relay server</div>
-      <div class="flex gap-2">
-        <input id="acct-server" class="auth-input flex-1" value="${esc(serverBase())}">
-        <button id="btn-acct-server" class="px-5 rounded-xl bg-surface-container-low hover:bg-surface-container font-semibold whitespace-nowrap transition-colors">Save</button>
+
+    <div class="me-actions">
+      ${signed
+        ? `<button id="btn-save-profile" class="btn btn--volt btn--block">Save profile</button>
+           <button id="btn-signout2" class="btn btn--ghost btn--block">Sign out</button>`
+        : `<button id="btn-signin2" class="btn btn--volt btn--block">Sign in / create account</button>`}
+    </div>
+
+    <div class="group">
+      <div class="group-row">
+        <label class="group-label" for="acct-server">Relay server</label>
+        <div class="group-line">
+          <input id="acct-server" class="auth-input" value="${esc(serverBase())}" autocapitalize="off" spellcheck="false">
+          <button id="btn-acct-server" class="btn btn--soft">Save</button>
+        </div>
       </div>
     </div>
-    <button id="btn-install2" class="hidden w-full mt-4 py-3 rounded-2xl bg-surface-container-low hover:bg-surface-container font-semibold transition-colors">Install SWRemote app</button>
-    <p class="text-xs text-outline mt-6 text-center">SWRemote · gen-z edition ⚡</p>`;
+
+    <button id="btn-install2" class="btn btn--soft btn--block me-install hidden"><span class="mi">install_mobile</span><span>Install SWRemote app</span></button>
+    <p class="me-foot">SWRemote</p>`;
+
   if (signed) {
     $("btn-signout2").onclick = sbLogout;
     $("btn-save-profile").onclick = async () => {
@@ -176,7 +183,7 @@ function renderSideUser() {
   const signed = sbOn() && sbSignedIn();
   const av = $("side-avatar");
   if (signed && myProfile.avatar_url) {
-    av.innerHTML = `<img src="${esc(myProfile.avatar_url)}" class="w-9 h-9 rounded-full object-cover" alt="">`;
+    av.innerHTML = `<img src="${esc(myProfile.avatar_url)}" alt="">`;
   } else {
     av.textContent = signed ? (myProfile.display_name || sbSession.email || "S")[0].toUpperCase() : "?";
   }
@@ -288,8 +295,8 @@ function renderAcctRow() {
   $("manual-join").classList.toggle("hidden", !(showAcct && !sbSignedIn()));
   if (!showAcct) { el.innerHTML = ""; return; }
   el.innerHTML = sbSignedIn()
-    ? `Signed in as <b>${esc(sbSession.email)}</b> — manage everything from the <b>Account</b> tab, or <a href="#" id="link-signout" class="text-primary font-semibold">sign out</a>.`
-    : `You're browsing as a guest — <a href="#" id="link-signin" class="text-primary font-semibold">sign in</a> to see your devices.`;
+    ? `Signed in as <b>${esc(sbSession.email)}</b> — manage everything from the <b>Account</b> tab, or <a href="#" id="link-signout" class="link">sign out</a>.`
+    : `You're browsing as a guest — <a href="#" id="link-signin" class="link">sign in</a> to see your devices.`;
   const so = $("link-signout"), si = $("link-signin");
   if (so) so.onclick = (e) => { e.preventDefault(); sbLogout(); };
   if (si) si.onclick = (e) => { e.preventDefault(); enterAuth(); };
@@ -350,8 +357,7 @@ function toast(msg) {
 let lastDevices = [];
 async function loadDevices(quiet) {
   const list = $("device-list");
-  if (!quiet) list.innerHTML = '<div class="bg-surface-container-lowest rounded-2xl p-5 shadow-sm animate-pulse"><div class="h-4 bg-surface-container rounded w-2/3 mb-3"></div><div class="h-4 bg-surface-container rounded w-1/3"></div></div>'
-    + '<div class="bg-surface-container-lowest rounded-2xl p-5 shadow-sm animate-pulse"><div class="h-4 bg-surface-container rounded w-2/3 mb-3"></div><div class="h-4 bg-surface-container rounded w-1/3"></div></div>';
+  if (!quiet) list.innerHTML = '<div class="dev-skel"></div><div class="dev-skel"></div>';
   try {
     const headers = {};
     const token = sbOn() ? await sbToken() : null;
@@ -362,7 +368,7 @@ async function loadDevices(quiet) {
     lastDevices = j.devices || [];
     renderDeviceList(lastDevices);
     const srt = $("side-relay-text");
-    if (srt) srt.textContent = "● Connected";
+    if (srt) { srt.textContent = "Connected"; const rp = $("relay-pill"); if (rp) rp.dataset.state = "on"; }
     // direct link support: ?id=123456789 opens the PIN box for that device (fresh loads only)
     const want = new URLSearchParams(location.search).get("id");
     if (want) {
@@ -375,18 +381,12 @@ async function loadDevices(quiet) {
     if (!quiet && !loadDevices._retried) {
       loadDevices._retried = true;
       $("dev-count").textContent = "";
-      list.innerHTML = `<div class="col-span-full bg-surface-container-lowest rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
-        <span class="material-symbols-outlined text-5xl text-primary mb-3">bedtime</span>
-        <div class="font-display font-bold text-xl mb-1">Waking the server…</div>
-        <div class="text-sm text-on-surface-variant">Free servers nap when idle — give it up to a minute.</div></div>`;
+      list.innerHTML = stateCard("bedtime", "Waking the server…", "Free servers nap when idle — give it up to a minute.");
       wakeServerLite().then(() => loadDevices(true));
       return;
     }
     $("dev-count").textContent = "";
-    list.innerHTML = `<div class="col-span-full bg-surface-container-lowest rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
-      <span class="material-symbols-outlined text-5xl text-outline mb-3">cloud_off</span>
-      <div class="font-display font-bold text-xl mb-1">Cannot reach the server.</div>
-      <div class="text-sm text-on-surface-variant">${esc(e.message)}<br>Check your connection and tap refresh.</div></div>`;
+    list.innerHTML = stateCard("cloud_off", "Cannot reach the server.", esc(e.message) + "<br>Check your connection and tap refresh.");
   }
 }
 // light wake-up used outside a session: just poll health (no status text)
@@ -400,95 +400,114 @@ async function wakeServerLite() {
   }
   return false;
 }
+/* ---------- 3. shared state-card + tint helpers ---------- */
+function stateCard(icon, title, body, extra) {
+  return `<div class="state">
+    <span class="state-art"><span class="mi">${icon}</span></span>
+    <h3 class="state-title">${title}</h3>
+    <p class="state-body">${body}</p>${extra || ""}
+  </div>`;
+}
+const DEV_TINTS = ["sky", "peach", "lilac", "pink", "mint", "zest"];
+function devTint(id) {
+  let h = 0;
+  for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return DEV_TINTS[h % DEV_TINTS.length];
+}
+
 function renderDeviceList(devices) {
   const list = $("device-list");
   const online = devices.filter((d) => d.online).length;
-  $("dev-count").textContent = devices.length
-    ? `${online} of ${devices.length} online` : "";
+  $("dev-count").textContent = devices.length ? `${online} of ${devices.length} online` : "";
+
   if (!devices.length) {
-    const emptyArt = `<div class="w-24 h-24 rounded-3xl bg-gradient-to-br from-primary-fixed to-tertiary-fixed grid place-items-center mb-4 shadow-lg">
-           <span class="material-symbols-outlined text-5xl text-primary">computer</span>
-         </div>`;
     list.innerHTML = sbOn() && sbSignedIn()
-      ? `<div class="col-span-full bg-surface-container-lowest rounded-3xl p-10 shadow-sm flex flex-col items-center text-center">
-           ${emptyArt}
-           <div class="font-display font-bold text-2xl mb-2">No devices yet.</div>
-           <div class="text-sm text-on-surface-variant max-w-sm mb-5">Your PCs will appear here once you link them. It takes less than a minute.</div>
-           <div class="flex flex-col gap-2 text-left w-full max-w-sm">
-             <div class="flex items-center gap-3 p-3 rounded-xl bg-surface-container-low"><span class="w-8 h-8 rounded-full bg-primary text-on-primary grid place-items-center font-bold shrink-0">1</span><span class="text-sm">Run <b>SWRemote-Setup.exe</b> on your Windows PC</span></div>
-             <div class="flex items-center gap-3 p-3 rounded-xl bg-surface-container-low"><span class="w-8 h-8 rounded-full bg-primary text-on-primary grid place-items-center font-bold shrink-0">2</span><span class="text-sm">Tap <b>Add device</b> above and enter the link code</span></div>
-             <div class="flex items-center gap-3 p-3 rounded-xl bg-surface-container-low"><span class="w-8 h-8 rounded-full bg-primary text-on-primary grid place-items-center font-bold shrink-0">3</span><span class="text-sm">Click your PC to take control from anywhere</span></div>
-           </div>
-         </div>`
-      : `<div class="col-span-full bg-surface-container-lowest rounded-3xl p-10 shadow-sm flex flex-col items-center text-center">
-           ${emptyArt}
-           <div class="font-display font-bold text-2xl mb-2">No devices yet.</div>
-           <div class="text-sm text-on-surface-variant max-w-sm">Open <b>SWRemote-Agent.exe</b> on a Windows PC first, then sign in to link it.</div>
-         </div>`;
+      ? stateCard("computer", "No devices yet.",
+          "Your PCs show up here once you link them. It takes under a minute.",
+          `<ol class="mini-steps">
+             <li><span>Run <b>SWRemote-Setup.exe</b> on your Windows PC</span></li>
+             <li><span>Tap <b>Add device</b> and enter the link code</span></li>
+             <li><span>Tap your PC to take control from anywhere</span></li>
+           </ol>`)
+      : stateCard("computer", "No devices yet.",
+          "Open <b>SWRemote-Agent.exe</b> on a Windows PC first, then sign in to link it.");
     return;
   }
-  list.innerHTML = "";
+
   const q = ($("dev-search").value || "").trim().toLowerCase();
   const shown = q ? devices.filter((d) => (d.name + " " + d.id).toLowerCase().includes(q)) : devices;
   if (!shown.length) {
-    list.innerHTML = `<div class="col-span-full bg-surface-container-lowest rounded-2xl p-10 shadow-sm flex flex-col items-center text-center">
-      <span class="material-symbols-outlined text-5xl text-outline mb-3">search_off</span>
-      <div class="font-display font-bold text-xl mb-1">No matches.</div>
-      <div class="text-sm text-on-surface-variant">Try a different search.</div></div>`;
+    list.innerHTML = stateCard("search_off", "No matches.", "Try a different name or ID.");
     return;
   }
-    shown.forEach((d) => {
-      const card = document.createElement("div");
-      card.className = "device-card bg-surface-container-lowest rounded-2xl p-5 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col justify-between group" + (d.online ? "" : " opacity-90");
-      card.innerHTML = `
-        <div class="flex flex-col gap-4">
-          <div class="flex items-start justify-between gap-3">
-            <div class="flex items-center gap-3 min-w-0">
-              <div class="w-11 h-11 rounded-xl ${d.online ? "bg-secondary-container text-primary" : "bg-surface-container text-on-surface-variant"} flex items-center justify-center shrink-0 shadow-sm">
-                <span class="material-symbols-outlined text-2xl">desktop_windows</span>
-              </div>
-              <div class="flex flex-col min-w-0">
-                <span class="font-semibold text-on-surface truncate group-hover:text-primary transition-colors">${esc(d.name)}</span>
-                <span class="text-[11px] text-on-surface-variant font-mono mt-0.5">#${esc(d.id)}</span>
-              </div>
-            </div>
-            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full ${d.online ? "bg-tertiary-fixed text-on-tertiary-fixed-variant" : d.serviceOnline ? "bg-secondary-fixed text-primary" : "bg-surface-container-high text-on-surface-variant"} text-[11px] font-semibold shrink-0">
-              <span class="w-1.5 h-1.5 rounded-full ${d.online ? "bg-tertiary animate-pulse" : d.serviceOnline ? "bg-primary animate-pulse" : "bg-surface-variant"}"></span>${d.online ? "Online" : d.serviceOnline ? "Service on" : "Offline"}
-            </span>
-          </div>
-          <div class="bg-surface-container-low rounded-xl px-3 py-2.5 flex items-center justify-between">
-            <span class="text-sm ${d.online ? "text-on-surface font-medium" : "text-on-surface-variant"}">${d.online ? "Active now" : "seen " + relTime(d.lastSeen)}</span>
-          </div>
-        </div>
-        <div class="flex items-center gap-2 pt-5">
-          <button class="btn-share flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-surface-container-low hover:bg-surface-container text-on-surface text-sm font-medium transition-colors"><span class="material-symbols-outlined text-base text-secondary">share</span><span>Share</span></button>
-          ${!d.online && d.serviceOnline && d.mine
-            ? `<button class="btn-wake flex-[1.4] flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-tertiary-fixed text-on-tertiary-fixed-variant text-sm font-medium shadow-sm transition-all"><span class="material-symbols-outlined text-base">power_settings_new</span><span>Wake</span></button>`
-            : `<button class="btn-connect flex-[1.4] flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl ${d.online ? "bg-primary hover:bg-primary-container text-on-primary" : "bg-surface-container-high text-on-surface-variant"} text-sm font-medium shadow-sm transition-all" ${d.online ? "" : "disabled"}><span class="material-symbols-outlined text-base">${d.mine ? "play_arrow" : "lock"}</span><span>${d.mine ? "Open" : "Connect"}</span></button>`}
-        </div>`;
-      // own devices join with the account token — no PIN needed
-      if (d.online) card.querySelector(".btn-connect").onclick = () => d.mine ? startSessionToken(d) : askPin(d);
-      const wakeBtn = card.querySelector(".btn-wake");
-      if (wakeBtn) wakeBtn.onclick = () => wakeDevice(d, wakeBtn);
-      card.querySelector(".btn-share").onclick = () => shareDevice(d);
-      // always offer Remove on own devices
-      if (d.mine) {
-        const delBtn = document.createElement("button");
-        delBtn.className = "mt-2 w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-surface-container-low hover:bg-error-container text-on-surface hover:text-on-error-container text-xs font-medium transition-colors";
-        delBtn.innerHTML = '<span class="material-symbols-outlined text-base">delete</span><span>Remove device</span>';
-        delBtn.onclick = () => removeDevice(d, delBtn);
-        card.appendChild(delBtn);
-      }
-      // v8.1: logs button for own devices
-      if (d.mine && d.online) {
-        const logBtn = document.createElement("button");
-        logBtn.className = "mt-2 w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-surface-container-low hover:bg-surface-container text-on-surface text-xs font-medium transition-colors";
-        logBtn.innerHTML = '<span class="material-symbols-outlined text-base">description</span><span>View PC logs</span>';
-        logBtn.onclick = () => fetchLogs(d);
-        card.appendChild(logBtn);
-      }
-      list.appendChild(card);
-    });
+
+  // keep UI state across the auto-refresh rebuild
+  const openEl = list.querySelector(".dev-more[open]");
+  const openId = openEl ? openEl.dataset.id : null;
+  const animate = !list.querySelector(".dev"); // entrance animation only on first paint
+  list.innerHTML = "";
+
+  // online first, then service-on, then the rest (stable)
+  const ordered = shown.slice().sort((a, b) =>
+    (Number(!!b.online) - Number(!!a.online)) || (Number(!!b.serviceOnline) - Number(!!a.serviceOnline)));
+
+  ordered.forEach((d, i) => {
+    const state = d.online ? "on" : d.serviceOnline ? "svc" : "off";
+    const label = d.online ? "Online" : d.serviceOnline ? "Service on" : "Offline";
+    const canWake = !d.online && d.serviceOnline && d.mine;
+
+    const card = document.createElement("article");
+    card.className = `dev dev--${state}` + (animate ? " dev--in" : "");
+    card.dataset.id = d.id;
+    card.style.setProperty("--tint", `var(--${devTint(d.id)})`);
+    if (animate) card.style.setProperty("--i", Math.min(i, 8));
+
+    const screen = d.online
+      ? `<span class="mon" aria-hidden="true"><b></b><i></i><i></i><i></i></span>`
+      : `<span class="mon mon--sleep" aria-hidden="true"><span class="mi">bedtime</span></span>`;
+
+    const menu = d.mine
+      ? `<details class="dev-more" data-id="${esc(d.id)}">
+           <summary aria-label="More actions for ${esc(d.name)}"><span class="mi">more_horiz</span></summary>
+           <div class="tray">
+             ${d.online ? `<button class="btn-logs" type="button"><span class="mi">description</span><span>View PC logs</span></button>` : ""}
+             <button class="btn-remove danger" type="button"><span class="mi">delete</span><span>Remove device</span></button>
+           </div>
+         </details>`
+      : "";
+
+    const primary = canWake
+      ? `<button class="btn btn--mint btn-wake" type="button"><span class="mi">power_settings_new</span><span>Wake</span></button>`
+      : `<button class="btn btn--volt btn-connect" type="button" ${d.online ? "" : "disabled"}><span class="mi">${d.mine ? "play_arrow" : "lock"}</span><span>${d.mine ? "Open" : "Connect"}</span></button>`;
+
+    card.innerHTML = `
+      <div class="dev-screen">
+        ${screen}
+        <span class="dev-status">${label}</span>
+        ${menu}
+      </div>
+      <div class="dev-body">
+        <h3 class="dev-name">${esc(d.name)}</h3>
+        <p class="dev-meta"><span class="dev-id">#${esc(d.id)}</span><span class="dev-seen">${d.online ? "Active now" : "Seen " + relTime(d.lastSeen)}</span></p>
+      </div>
+      <div class="dev-actions">
+        ${primary}
+        <button class="btn btn--ghost btn--sq btn-share" type="button" aria-label="Copy invite link for ${esc(d.name)}"><span class="mi">share</span></button>
+      </div>`;
+
+    // own devices join with the account token — no PIN needed
+    if (d.online) card.querySelector(".btn-connect").onclick = () => (d.mine ? startSessionToken(d) : askPin(d));
+    const wakeBtn = card.querySelector(".btn-wake");
+    if (wakeBtn) wakeBtn.onclick = () => wakeDevice(d, wakeBtn);
+    card.querySelector(".btn-share").onclick = () => shareDevice(d);
+    const rm = card.querySelector(".btn-remove");
+    if (rm) rm.onclick = () => removeDevice(d, rm);
+    const lg = card.querySelector(".btn-logs");
+    if (lg) lg.onclick = () => fetchLogs(d);
+    if (openId && d.id === openId) { const m = card.querySelector(".dev-more"); if (m) m.setAttribute("open", ""); }
+
+    list.appendChild(card);
+  });
 }
 async function removeDevice(d, btn) {
   if (!confirm(`Remove "${d.name || d.id}" from your devices? You can re-add it anytime with its link code.`)) return;
@@ -508,7 +527,7 @@ async function removeDevice(d, btn) {
 async function wakeDevice(d, btn) {
   btn.disabled = true;
   const orig = btn.innerHTML;
-  btn.innerHTML = '<span class="material-symbols-outlined text-base animate-spin">refresh</span><span>Waking…</span>';
+  btn.innerHTML = '<span class="mi spin-ico">progress_activity</span><span>Waking…</span>';
   try {
     const token = await sbToken();
     const r = await fetch(serverBase() + "/api/wake", {
