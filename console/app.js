@@ -494,10 +494,6 @@ function renderDeviceList(devices) {
     card.style.setProperty("--tint", `var(--${devTint(d.id)})`);
     if (animate) card.style.setProperty("--i", Math.min(i, 8));
 
-    const screen = d.online
-      ? `<span class="mon" aria-hidden="true"><b></b><i></i><i></i><i></i></span>`
-      : `<span class="mon mon--sleep" aria-hidden="true"><span class="mi">bedtime</span></span>`;
-
     const menu = d.mine
       ? `<details class="dev-more" data-id="${esc(d.id)}">
            <summary aria-label="More actions for ${esc(d.name)}"><span class="mi">more_horiz</span></summary>
@@ -512,19 +508,21 @@ function renderDeviceList(devices) {
       ? `<button class="btn btn--mint btn-wake" type="button"><span class="mi">power_settings_new</span><span>Wake</span></button>`
       : `<button class="btn btn--volt btn-connect" type="button" ${d.online ? "" : "disabled"}><span class="mi">${d.mine ? "play_arrow" : "lock"}</span><span>${d.mine ? "Open" : "Connect"}</span></button>`;
 
+    // v10.3: calm row layout (Account-page style) — icon chip, name/meta,
+    // status pill; actions on their own line. No more monitor illustration.
     card.innerHTML = `
-      <div class="dev-screen">
-        ${screen}
+      <div class="dev-main">
+        <span class="dev-ico" aria-hidden="true"><span class="mi">${d.online ? "desktop_windows" : "bedtime"}</span></span>
+        <div class="dev-info">
+          <h3 class="dev-name">${esc(d.name)}</h3>
+          <p class="dev-meta"><span class="dev-id">#${esc(d.id)}</span><span class="dev-seen">${d.online ? "Active now" : "Seen " + relTime(d.lastSeen)}</span></p>
+        </div>
         <span class="dev-status">${label}</span>
-        ${menu}
-      </div>
-      <div class="dev-body">
-        <h3 class="dev-name">${esc(d.name)}</h3>
-        <p class="dev-meta"><span class="dev-id">#${esc(d.id)}</span><span class="dev-seen">${d.online ? "Active now" : "Seen " + relTime(d.lastSeen)}</span></p>
       </div>
       <div class="dev-actions">
         ${primary}
         <button class="btn btn--ghost btn--sq btn-share" type="button" aria-label="Copy invite link for ${esc(d.name)}"><span class="mi">share</span></button>
+        ${menu}
       </div>`;
 
     // own devices join with the account token — no PIN needed
