@@ -282,13 +282,19 @@ function runFfmpeg(inPath, outPath, msCap) {
   });
 }
 
-async function tgUpload(botToken, chatId, fileName, filePath) {
+async function tgUpload(botToken, chatId, fileName, filePath, origSize) {
   const stat = fs.statSync(filePath);
   const form = new FormData();
   form.append("chat_id", chatId);
   const buf = fs.readFileSync(filePath);
   form.append("video", new Blob([buf], { type: "video/mp4" }), fileName.replace(/\.[^.]+$/, "") + "-compact.mp4");
-  form.append("caption", `${fileName}  •  compact ${(stat.size / 1048576).toFixed(1)} MB`);
+  let caption = `🎬 <b>${esc(fileName)}</b>\n🗜️ Compact 360p · ${fmtMB(stat.size)}`;
+  if (origSize && origSize > stat.size) {
+    const saved = Math.round((1 - stat.size / origSize) * 100);
+    caption += `\n📦 Original ${fmtMB(origSize)} → saved ${saved}%`;
+  }
+  form.append("caption", caption);
+  form.append("parse_mode", "HTML");
   form.append("supports_streaming", "true");
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 120000);
@@ -313,11 +319,27 @@ async function tgUpload(botToken, chatId, fileName, filePath) {
  * delete the card and send the video in its place. On failure the card stays
  * (it carries the download link) with a failure caption.
  */
-function statusCaption(job, stage) {
-  let s = `🎬 ${job.fileName}`;
-  if (job.size) s += `  •  ${(job.size / 1048576).toFixed(1)} MB`;
-  s += `\n${stage}`;
-  if (job.fallback_link) s += `\n\n⬇️ Full file (link valid 7 days):\n${job.fallback_link}`;
+function esc(s) {
+  return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function fmtMB(n) {
+  return n > 0 ? (n / 1048576).toFixed(1) + " MB" : "";
+}
+
+/** 10-cell unicode progress bar: ▰▰▰▰▱▱▱▱▱▱ */
+function bar(pct) {
+  const filled = Math.max(0, Math.min(10, Math.round(pct / 10)));
+  return "▰".repeat(filled) + "▱".repeat(10 - filled);
+}
+
+function statusCaption(job, stageHtml) {
+  let s = `🎬 <b>${esc(job.fileName)}</b>`;
+  if (job.size) s += `\n📦 ${fmtMB(job.size)} · full file linked below`;
+  s += `\n\n${stageHtml}`;
+  if (job.fallback_link) {
+    s += `\n\n⬇️ <a href="${esc(job.fallback_link)}">Download full file</a> · valid 7 days`;
+  }
   return s.slice(0, 1024);
 }
 
@@ -335,7 +357,8 @@ async function tgJson(job, method, params) {
 }
 
 /** Update the status card's stage line. Best-effort and throttled: stage
- *  changes go out immediately; identical repeats are dropped. */
+ *  changes go out immediately; a failed edit (other than Telegram's benign
+ *  "not modified") is retried once, so the card never lags a stage behind. */
 async function setStage(job, stage, force) {
   if (!job.status_message_id || !job.bot_token) return;
   const now = Date.now();
@@ -343,17 +366,21 @@ async function setStage(job, stage, force) {
   if (!force && job._lastEdit && now - job._lastEdit < 15000) return;
   job._stageText = stage;
   job._lastEdit = now;
+  const caption = statusCaption(job, stage);
+  const send = () =>
+    job.status_is_photo
+      ? tgJson(job, "editMessageCaption", {
+          chat_id: job.chat_id, message_id: job.status_message_id, caption, parse_mode: "HTML",
+        })
+      : tgJson(job, "editMessageText", {
+          chat_id: job.chat_id, message_id: job.status_message_id, text: caption,
+          parse_mode: "HTML", disable_web_page_preview: true,
+        });
   try {
-    const caption = statusCaption(job, stage);
-    if (job.status_is_photo) {
-      await tgJson(job, "editMessageCaption", {
-        chat_id: job.chat_id, message_id: job.status_message_id, caption,
-      });
-    } else {
-      await tgJson(job, "editMessageText", {
-        chat_id: job.chat_id, message_id: job.status_message_id, text: caption,
-        disable_web_page_preview: true,
-      });
+    const r = await send();
+    if (r && r.ok === false && !/not modified/i.test(r.description || "")) {
+      await new Promise((res) => setTimeout(res, 5000));
+      await send().catch(() => {});
     }
   } catch {
     /* status updates never break the job */
@@ -455,7 +482,7 @@ async function processJob(job) {
   // Time caps live in fetchPart (30 s/part) and runFfmpeg; the whole job is
   // also bounded by Render's own limits. Secrets are scrubbed in `finally`.
   try {
-    await setStage(job, "🗜️ Compressing… ⏳ starting", true);
+    await setStage(job, "🗜️ <b>Compressing</b> · ⏳ starting…", true);
     job.status = "probing";
     job.probe = await probeStream(job);
     job.status = "downloading";
@@ -467,19 +494,30 @@ async function processJob(job) {
       job.detail = `downloading ${pct}%`;
       if (pct >= nextMilestone) {
         nextMilestone = pct - (pct % 25) + 25;
-        setStage(job, `🗜️ Compressing… ⬇️ downloading ${pct}%`, true);
+        setStage(job, `🗜️ <b>Compressing</b> · ⬇️ downloading\n${bar(pct)} ${pct}%`, true);
       }
     });
 
     job.status = "compressing";
     job.detail = "compressing";
-    await setStage(job, "🗜️ Compressing… 🎞️ encoding compact video", true);
-    await runFfmpeg(inPath, outPath, JOB_TIMEOUT_MS - 5 * 60 * 1000);
+    await setStage(job, "🗜️ <b>Compressing</b> · 🎞️ encoding compact video…", true);
+    // Long encodes must never LOOK stuck: refresh the stage with elapsed
+    // time every 2 minutes while ffmpeg runs.
+    const encStart = Date.now();
+    const heartbeat = setInterval(() => {
+      const mins = Math.max(1, Math.round((Date.now() - encStart) / 60000));
+      setStage(job, `🗜️ <b>Compressing</b> · 🎞️ encoding compact video… ${mins} min`, true);
+    }, 120000);
+    try {
+      await runFfmpeg(inPath, outPath, JOB_TIMEOUT_MS - 5 * 60 * 1000);
+    } finally {
+      clearInterval(heartbeat);
+    }
 
     job.status = "uploading";
     job.detail = "uploading";
-    await setStage(job, "🗜️ Compressing… ⬆️ sending to Telegram", true);
-    const messageId = await tgUpload(job.bot_token, job.chat_id, job.fileName, outPath);
+    await setStage(job, "🗜️ <b>Compressing</b> · ⬆️ sending to Telegram…", true);
+    const messageId = await tgUpload(job.bot_token, job.chat_id, job.fileName, outPath, job.size);
 
     // The video is in — now replace the status card with it.
     await deleteStatusCard(job);
@@ -490,7 +528,7 @@ async function processJob(job) {
     job.status = "failed";
     job.detail = String((e && e.message) || e).slice(0, 300);
     // Leave the card in place (it carries the download link), marked failed.
-    await setStage(job, "❌ Compression failed — the full file is at the link below.", true);
+    await setStage(job, "❌ <b>Compression failed</b> — the full file is at the link below.", true);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     // scrub secrets
