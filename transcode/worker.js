@@ -47,6 +47,37 @@ const UA =
 // Telegram Bot API base (overridable only for local protocol tests).
 const TG_BASE = process.env.TG_API_BASE || "https://api.telegram.org";
 
+// ---------- TeraWatch watchdog ----------
+// The iPhone "TeraFetch Watch" shortcut pings /api/watch-ping every loop
+// (~8 s). If the pings stop for over 150 s, iOS has almost certainly killed
+// the shortcut — we ask TeraFetch (which holds the bot token) to post a
+// "⚠️ TeraWatch stopped" alert in the channel. The pings also keep this
+// service warm, so the alert fires long before Render's idle spin-down.
+const WATCH_KEY = process.env.WATCH_KEY || "";
+const TF_BASE = "https://terabox-fetch-sankstudent1-creates-projects.vercel.app";
+const WATCH_GAP_MS = 150000;
+const watch = { lastPing: 0, alerted: false };
+
+setInterval(async () => {
+  if (!WATCH_KEY || !watch.lastPing || watch.alerted) return;
+  if (Date.now() - watch.lastPing < WATCH_GAP_MS) return;
+  try {
+    const r = await fetchTimeout(
+      TF_BASE + "/api/watch-alert",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: WATCH_KEY }),
+      },
+      20000
+    );
+    const j = await r.json().catch(() => ({}));
+    if (j && j.ok) watch.alerted = true; // re-armed by the next ping
+  } catch {
+    /* try again on the next tick */
+  }
+}, 30000);
+
 const MAX_CONCURRENT = 10; // parallel TeraBox connections (aria2-style split)
 const PART_SIZE = 2 * 1024 * 1024; // 2 MB parts
 const JOB_TIMEOUT_MS = 40 * 60 * 1000; // 40 min hard cap per job
@@ -490,7 +521,21 @@ const server = http.createServer(async (req, res) => {
         ffmpeg: fs.existsSync(FFMPEG),
         queued: queue.length,
         active,
+        watch: {
+          armed: !!WATCH_KEY,
+          seen: !!watch.lastPing,
+          lastPingAgoSec: watch.lastPing ? Math.round((Date.now() - watch.lastPing) / 1000) : null,
+          alerted: watch.alerted,
+        },
       });
+    }
+    if (req.method === "GET" && url.pathname === "/api/watch-ping") {
+      if (!WATCH_KEY || url.searchParams.get("k") !== WATCH_KEY) {
+        return json(res, 403, { ok: false, error: "bad watch key" });
+      }
+      watch.lastPing = Date.now();
+      watch.alerted = false; // a living Watch re-arms the watchdog
+      return json(res, 200, { ok: true });
     }
     if (req.method === "GET" && url.pathname === "/api/jobs") {
       const list = [...jobs.values()]
