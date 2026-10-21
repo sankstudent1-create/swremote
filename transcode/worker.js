@@ -232,34 +232,8 @@ async function downloadToFile(dlink, ndus, filePath, total, onProgress) {
   }
 }
 
-function runFfmpeg(inPath, outPath, msCap) {
+function runFfmpegArgs(args, msCap, label) {
   return new Promise((resolve, reject) => {
-    // Compact preset: 360p, ~220k video + 48k audio ≈ 270 kbps total.
-    // 6 min ≈ 12 MB — small enough to fly into Telegram, watchable on phones.
-    const args = [
-      "-y",
-      "-i",
-      inPath,
-      "-vf",
-      "scale=-2:360",
-      "-c:v",
-      "libx264",
-      "-preset",
-      "veryfast",
-      "-b:v",
-      "220k",
-      "-maxrate",
-      "330k",
-      "-bufsize",
-      "660k",
-      "-c:a",
-      "aac",
-      "-b:a",
-      "48k",
-      "-movflags",
-      "+faststart",
-      outPath,
-    ];
     const p = spawn(FFMPEG, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stderr = "";
     p.stderr.on("data", (d) => {
@@ -268,7 +242,7 @@ function runFfmpeg(inPath, outPath, msCap) {
     });
     const kill = setTimeout(() => {
       p.kill("SIGKILL");
-      reject(new Error("transcode timed out"));
+      reject(new Error(label + " timed out"));
     }, msCap);
     p.on("error", (e) => {
       clearTimeout(kill);
@@ -276,22 +250,97 @@ function runFfmpeg(inPath, outPath, msCap) {
     });
     p.on("close", (code) => {
       clearTimeout(kill);
-      if (code === 0 && fs.existsSync(outPath)) resolve();
+      if (code === 0) resolve();
       else reject(new Error("ffmpeg exit " + code + ": " + stderr.slice(-300)));
     });
   });
 }
 
-async function tgUpload(botToken, chatId, fileName, filePath, origSize) {
+/** Read duration / video codec / container from ffmpeg's own banner. */
+function probeMedia(inPath) {
+  return new Promise((resolve) => {
+    const p = spawn(FFMPEG, ["-hide_banner", "-i", inPath], { stdio: ["ignore", "pipe", "pipe"] });
+    let err = "";
+    p.stderr.on("data", (d) => {
+      err += d;
+      if (err.length > 6000) err = err.slice(-6000);
+    });
+    p.on("error", () => resolve({}));
+    p.on("close", () => {
+      const out = {};
+      const dm = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(err);
+      if (dm) out.duration = +dm[1] * 3600 + +dm[2] * 60 + +dm[3];
+      const vm = /Video:\s*([a-z0-9]+)/i.exec(err);
+      if (vm) out.codec = vm[1].toLowerCase();
+      const fm = /Input #0,\s*(.+?),\s*from/.exec(err);
+      if (fm) out.format = fm[1].toLowerCase();
+      resolve(out);
+    });
+  });
+}
+
+/**
+ * Encoder v2 plan. Telegram bots cannot upload >50 MB, so the bitrate is
+ * chosen FROM the duration: output target ~42 MB, video bitrate clamped to
+ * [110k, 900k]; very long videos (>40 min) drop to 240p so they still fit.
+ * Unknown duration -> the old fixed 220k/48k plan.
+ */
+function encodePlan(duration) {
+  if (!duration || duration <= 0) {
+    return { height: 360, vKbps: 220, aKbps: 48, preset: "superfast" };
+  }
+  const targetKbps = Math.floor((42 * 1024 * 1024 * 8) / 1000 / duration);
+  const aKbps = targetKbps >= 260 ? 48 : 40;
+  const vKbps = Math.max(110, Math.min(900, targetKbps - aKbps));
+  return { height: duration > 2400 ? 240 : 360, vKbps, aKbps, preset: "superfast" };
+}
+
+function buildEncodeArgs(inPath, outPath, plan) {
+  return [
+    "-y",
+    "-i", inPath,
+    "-vf", `scale=-2:${plan.height}:flags=fast_bilinear,fps=30`,
+    "-c:v", "libx264",
+    "-preset", plan.preset,
+    "-b:v", `${plan.vKbps}k`,
+    "-maxrate", `${Math.round(plan.vKbps * 1.5)}k`,
+    "-bufsize", `${plan.vKbps * 2}k`,
+    "-c:a", "aac",
+    "-b:a", `${plan.aKbps}k`,
+    "-movflags", "+faststart",
+    outPath,
+  ];
+}
+
+/** Repack into MP4 without re-encoding (h264 in MKV etc.) — seconds, lossless. */
+function runRemux(inPath, outPath, msCap) {
+  return runFfmpegArgs(
+    ["-y", "-i", inPath, "-c", "copy", "-movflags", "+faststart", outPath],
+    msCap,
+    "remux"
+  );
+}
+
+async function tgUpload(botToken, chatId, fileName, filePath, origSize, kind, height) {
   const stat = fs.statSync(filePath);
   const form = new FormData();
   form.append("chat_id", chatId);
   const buf = fs.readFileSync(filePath);
-  form.append("video", new Blob([buf], { type: "video/mp4" }), fileName.replace(/\.[^.]+$/, "") + "-compact.mp4");
-  let caption = `🎬 <b>${esc(fileName)}</b>\n🗜️ Compact 360p · ${fmtMB(stat.size)}`;
-  if (origSize && origSize > stat.size) {
-    const saved = Math.round((1 - stat.size / origSize) * 100);
-    caption += `\n📦 Original ${fmtMB(origSize)} → saved ${saved}%`;
+  const base = fileName.replace(/\.[^.]+$/, "");
+  const sendName =
+    kind === "original" ? fileName : kind === "remux" ? base + ".mp4" : base + "-compact.mp4";
+  form.append("video", new Blob([buf], { type: "video/mp4" }), sendName);
+  let caption;
+  if (kind === "original") {
+    caption = `🎬 <b>${esc(fileName)}</b>\n📦 Original ${fmtMB(stat.size)} · sent as-is — no compression needed`;
+  } else if (kind === "remux") {
+    caption = `🎬 <b>${esc(fileName)}</b>\n⚡ Repacked to MP4 · original quality · ${fmtMB(stat.size)}`;
+  } else {
+    caption = `🎬 <b>${esc(fileName)}</b>\n🗜️ Compact ${height || 360}p · ${fmtMB(stat.size)}`;
+    if (origSize && origSize > stat.size) {
+      const saved = Math.round((1 - stat.size / origSize) * 100);
+      caption += `\n📦 Original ${fmtMB(origSize)} → saved ${saved}%`;
+    }
   }
   form.append("caption", caption);
   form.append("parse_mode", "HTML");
@@ -498,32 +547,71 @@ async function processJob(job) {
       }
     });
 
-    job.status = "compressing";
-    job.detail = "compressing";
-    await setStage(job, "🗜️ <b>Compressing</b> · 🎞️ encoding compact video…", true);
-    // Long encodes must never LOOK stuck: refresh the stage with elapsed
-    // time every 2 minutes while ffmpeg runs.
-    const encStart = Date.now();
-    const heartbeat = setInterval(() => {
-      const mins = Math.max(1, Math.round((Date.now() - encStart) / 60000));
-      setStage(job, `🗜️ <b>Compressing</b> · 🎞️ encoding compact video… ${mins} min`, true);
-    }, 120000);
-    try {
-      await runFfmpeg(inPath, outPath, JOB_TIMEOUT_MS - 5 * 60 * 1000);
-    } finally {
-      clearInterval(heartbeat);
-    }
+    // ---- Encoder v2: cheapest path that delivers a playable video ----
+    const media = await probeMedia(inPath);
+    const FAST_MAX = 47 * 1024 * 1024; // safely under Telegram's 50 MB bot cap
+    const mp4Like = /mp4|mov/.test(media.format || "");
+    let messageId;
+    let kind = "compact";
+    let sendPath = outPath;
 
-    job.status = "uploading";
-    job.detail = "uploading";
-    await setStage(job, "🗜️ <b>Compressing</b> · ⬆️ sending to Telegram…", true);
-    const messageId = await tgUpload(job.bot_token, job.chat_id, job.fileName, outPath, job.size);
+    if (total <= FAST_MAX && media.codec === "h264" && mp4Like) {
+      // Already a Telegram-ready file — skip encoding entirely.
+      kind = "original";
+      sendPath = inPath;
+      job.enc = { path: "original", duration: Math.round(media.duration || 0), codec: media.codec || "" };
+      job.status = "uploading";
+      job.detail = "sending original (no encode needed)";
+      await setStage(job, "⚡ <b>Already Telegram-ready</b> · ⬆️ sending the original…", true);
+      messageId = await tgUpload(job.bot_token, job.chat_id, job.fileName, sendPath, job.size, kind);
+    } else if (total <= FAST_MAX && media.codec === "h264") {
+      // Right codec, wrong wrapper — repack to MP4 without re-encoding.
+      kind = "remux";
+      job.enc = { path: "remux", duration: Math.round(media.duration || 0), codec: media.codec || "" };
+      job.status = "compressing";
+      job.detail = "remuxing";
+      await setStage(job, "⚡ <b>Repacking to MP4</b> · original quality, no re-encode…", true);
+      await runRemux(inPath, outPath, 180000);
+      job.status = "uploading";
+      job.detail = "uploading";
+      await setStage(job, "⚡ <b>Repacking to MP4</b> · ⬆️ sending to Telegram…", true);
+      messageId = await tgUpload(job.bot_token, job.chat_id, job.fileName, sendPath, job.size, kind);
+    } else {
+      // Full re-encode, duration-aware plan (+ one oversize retry at 70%).
+      const plan = encodePlan(media.duration);
+      job.enc = { path: "encode", duration: Math.round(media.duration || 0), ...plan };
+      job.status = "compressing";
+      job.detail = "compressing";
+      await setStage(job, "🗜️ <b>Compressing</b> · 🎞️ encoding compact video…", true);
+      // Long encodes must never LOOK stuck: refresh the stage with elapsed
+      // time every 2 minutes while ffmpeg runs.
+      const encStart = Date.now();
+      const heartbeat = setInterval(() => {
+        const mins = Math.max(1, Math.round((Date.now() - encStart) / 60000));
+        setStage(job, `🗜️ <b>Compressing</b> · 🎞️ encoding compact video… ${mins} min`, true);
+      }, 120000);
+      try {
+        await runFfmpegArgs(buildEncodeArgs(inPath, outPath, plan), JOB_TIMEOUT_MS - 5 * 60 * 1000, "transcode");
+        const outSize = fs.existsSync(outPath) ? fs.statSync(outPath).size : 0;
+        if (outSize > 49.5 * 1024 * 1024) {
+          const plan2 = { ...plan, vKbps: Math.max(90, Math.round(plan.vKbps * 0.7)) };
+          job.enc.retry = plan2.vKbps;
+          await runFfmpegArgs(buildEncodeArgs(inPath, outPath, plan2), JOB_TIMEOUT_MS - 5 * 60 * 1000, "transcode");
+        }
+      } finally {
+        clearInterval(heartbeat);
+      }
+      job.status = "uploading";
+      job.detail = "uploading";
+      await setStage(job, "🗜️ <b>Compressing</b> · ⬆️ sending to Telegram…", true);
+      messageId = await tgUpload(job.bot_token, job.chat_id, job.fileName, sendPath, job.size, kind, plan.height);
+    }
 
     // The video is in — now replace the status card with it.
     await deleteStatusCard(job);
 
     job.status = "done";
-    job.detail = `compact video sent (message ${messageId})`;
+    job.detail = `video sent via ${kind} (message ${messageId})`;
   } catch (e) {
     job.status = "failed";
     job.detail = String((e && e.message) || e).slice(0, 300);
