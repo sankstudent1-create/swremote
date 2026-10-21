@@ -68,7 +68,11 @@ async function loadProfile() {
   if (!sbOn() || !sbSignedIn()) return;
   try {
     const token = await sbToken();
-    const j = await sbCall("/rest/v1/profiles?select=display_name,avatar_url", null, { Authorization: "Bearer " + token }, "GET");
+    const uid = sbUserId();
+    if (!token || !uid) return;
+    // v10.1: filter to MY row — the unfiltered query took row [0], which
+    // could be somebody else's profile entirely.
+    const j = await sbCall("/rest/v1/profiles?id=eq." + uid + "&select=display_name,avatar_url", null, { Authorization: "Bearer " + token }, "GET");
     if (Array.isArray(j) && j[0]) myProfile = { display_name: j[0].display_name || "", avatar_url: j[0].avatar_url || "" };
   } catch {}
 }
@@ -78,17 +82,37 @@ function avatarHTML(size) {
   const ch = (myProfile.display_name || sbSession?.email || "?")[0].toUpperCase();
   return `<div class="avatar" style="${box};font-size:${Math.round(size * 0.42)}px">${esc(ch)}</div>`;
 }
+// v10.1: phone photos are 3–8 MB — shrink to ≤512px JPEG before upload so
+// it finishes fast even on a hotspot, and the stored avatar stays light.
+async function shrinkImage(file) {
+  const origExt = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z]/g, "") || "jpg";
+  try {
+    const bmp = await createImageBitmap(file);
+    const max = 512;
+    const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    if (scale === 1 && file.size < 400 * 1024) { bmp.close && bmp.close(); return { blob: file, ext: origExt }; }
+    const cv = document.createElement("canvas");
+    cv.width = Math.max(1, Math.round(bmp.width * scale));
+    cv.height = Math.max(1, Math.round(bmp.height * scale));
+    cv.getContext("2d").drawImage(bmp, 0, 0, cv.width, cv.height);
+    bmp.close && bmp.close();
+    const blob = await new Promise((res) => cv.toBlob(res, "image/jpeg", 0.85));
+    if (blob) return { blob, ext: "jpg" };
+  } catch {}
+  return { blob: file, ext: origExt };
+}
 async function uploadAvatar(file) {
   const token = await sbToken();
   const uid = sbUserId();
   if (!token || !uid) throw new Error("Sign in required");
-  const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z]/g, "") || "jpg";
+  if (!/^image\//.test(file.type || "")) throw new Error("Please choose an image file");
+  const { blob, ext } = await shrinkImage(file);
   const path = `${uid}/avatar.${ext}`;
   let up;
   try {
     up = await fetch(sbUrl() + "/storage/v1/object/avatars/" + path, {
-      method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": file.type || "image/jpeg", "x-upsert": "true" },
-      body: file,
+      method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": ext === "jpg" ? "image/jpeg" : (file.type || "image/jpeg"), "x-upsert": "true" },
+      body: blob,
     });
   } catch (e) { throw new Error("Network error: " + e.message); }
   if (!up.ok) {
@@ -156,9 +180,17 @@ function renderAccountPage() {
         renderSideUser(); toast("Profile saved");
       } catch { toast("Could not save"); }
     };
-    $("avatar-file").onchange = (e) => {
+    $("avatar-file").onchange = async (e) => {
       const f = e.target.files[0];
-      if (f) uploadAvatar(f).catch((err) => toast(err.message || "Could not upload picture"));
+      if (!f) return;
+      const av = document.querySelector(".me-av");
+      if (av) av.classList.add("uploading");
+      try { await uploadAvatar(f); } // success re-renders the page (fresh .me-av)
+      catch (err) {
+        toast(err.message || "Could not upload picture");
+        const av2 = document.querySelector(".me-av");
+        if (av2) av2.classList.remove("uploading");
+      }
     };
   } else $("btn-signin2").onclick = enterAuth;
   $("btn-acct-server").onclick = async () => {

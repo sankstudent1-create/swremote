@@ -398,11 +398,14 @@ a{color:inherit;}
 
 /* ---------- 8. ACCOUNT ---------- */
 #account-card{max-width:560px; margin:0 auto; overflow:hidden; border-radius:var(--r-xl); background:var(--paper); box-shadow:var(--sh-card);}
-.me-cover{height:104px; background:var(--volt); position:relative; overflow:hidden;}
-.me-cover::before{content:""; position:absolute; right:-30px; top:-50px; width:150px; height:150px; border-radius:50%; background:var(--zest);}
-.me-cover::after{content:""; position:absolute; left:24px; bottom:-48px; width:90px; height:90px; border-radius:50%; border:16px solid var(--pink);}
-.me-id{display:flex; flex-direction:column; align-items:center; gap:6px; margin-top:-54px; padding:0 20px; text-align:center;}
+.me-cover{height:84px; background:linear-gradient(120deg, var(--volt), #7A72FF); position:relative; overflow:hidden;}
+.me-cover::before{content:""; position:absolute; right:-24px; top:-56px; width:120px; height:120px; border-radius:50%; background:var(--zest); opacity:.35;}
+.me-cover::after{content:none;}
+.me-id{display:flex; flex-direction:column; align-items:center; gap:6px; margin-top:-46px; padding:0 20px; text-align:center;}
 .me-av{position:relative;}
+.me-av.uploading .avatar{opacity:.35;}
+.me-av.uploading .me-cam{pointer-events:none;}
+.me-av.uploading .me-cam .mi{animation:spin 1s linear infinite;}
 .avatar{display:grid; place-items:center; border-radius:50%; object-fit:cover; overflow:hidden; background:var(--ink); color:var(--zest); border:5px solid #fff; font-family:var(--f-display); font-weight:800;}
 .me-cam{position:absolute; right:-2px; bottom:2px; display:grid; place-items:center; width:44px; height:44px; border-radius:50%; background:var(--volt); color:#fff; border:3px solid #fff; cursor:pointer;}
 .me-name{max-width:340px; text-align:center; background:var(--canvas); border-color:transparent; font:800 var(--t-xl)/1.2 var(--f-display);}
