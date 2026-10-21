@@ -44,6 +44,8 @@ const FFMPEG = (() => {
 })();
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
+// Telegram Bot API base (overridable only for local protocol tests).
+const TG_BASE = process.env.TG_API_BASE || "https://api.telegram.org";
 
 const MAX_CONCURRENT = 10; // parallel TeraBox connections (aria2-style split)
 const PART_SIZE = 2 * 1024 * 1024; // 2 MB parts
@@ -260,7 +262,7 @@ async function tgUpload(botToken, chatId, fileName, filePath) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 120000);
   try {
-    const r = await fetch(`https://api.telegram.org/bot${botToken}/sendVideo`, {
+    const r = await fetch(`${TG_BASE}/bot${botToken}/sendVideo`, {
       method: "POST",
       body: form,
       signal: ctrl.signal,
@@ -270,6 +272,71 @@ async function tgUpload(botToken, chatId, fileName, filePath) {
     return j.result.message_id;
   } finally {
     clearTimeout(t);
+  }
+}
+
+/**
+ * Status-card protocol: the caller (TeraFetch) posts a "compressing" card
+ * (thumbnail + title + download link) and hands us its message id. We keep
+ * the caption updated with progress, and when the compact video is ready we
+ * delete the card and send the video in its place. On failure the card stays
+ * (it carries the download link) with a failure caption.
+ */
+function statusCaption(job, stage) {
+  let s = `🎬 ${job.fileName}`;
+  if (job.size) s += `  •  ${(job.size / 1048576).toFixed(1)} MB`;
+  s += `\n${stage}`;
+  if (job.fallback_link) s += `\n\n⬇️ Full file (link valid 7 days):\n${job.fallback_link}`;
+  return s.slice(0, 1024);
+}
+
+async function tgJson(job, method, params) {
+  const r = await fetchTimeout(
+    `${TG_BASE}/bot${job.bot_token}/${method}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    },
+    20000
+  );
+  return r.json().catch(() => ({}));
+}
+
+/** Update the status card's stage line. Best-effort and throttled: stage
+ *  changes go out immediately; identical repeats are dropped. */
+async function setStage(job, stage, force) {
+  if (!job.status_message_id || !job.bot_token) return;
+  const now = Date.now();
+  if (!force && job._stageText === stage) return;
+  if (!force && job._lastEdit && now - job._lastEdit < 15000) return;
+  job._stageText = stage;
+  job._lastEdit = now;
+  try {
+    const caption = statusCaption(job, stage);
+    if (job.status_is_photo) {
+      await tgJson(job, "editMessageCaption", {
+        chat_id: job.chat_id, message_id: job.status_message_id, caption,
+      });
+    } else {
+      await tgJson(job, "editMessageText", {
+        chat_id: job.chat_id, message_id: job.status_message_id, text: caption,
+        disable_web_page_preview: true,
+      });
+    }
+  } catch {
+    /* status updates never break the job */
+  }
+}
+
+async function deleteStatusCard(job) {
+  if (!job.status_message_id || !job.bot_token) return;
+  try {
+    await tgJson(job, "deleteMessage", {
+      chat_id: job.chat_id, message_id: job.status_message_id,
+    });
+  } catch {
+    /* the card may already be gone — fine */
   }
 }
 
@@ -357,32 +424,49 @@ async function processJob(job) {
   // Time caps live in fetchPart (30 s/part) and runFfmpeg; the whole job is
   // also bounded by Render's own limits. Secrets are scrubbed in `finally`.
   try {
+    await setStage(job, "🗜️ Compressing… ⏳ starting", true);
     job.status = "probing";
     job.probe = await probeStream(job);
     job.status = "downloading";
     const total = await probeSize(job.dlink, job.ndus);
     if (total > 1024 * 1024 * 1024) throw new Error("file over 1 GB — refusing");
+    let nextMilestone = 0;
     await downloadToFile(job.dlink, job.ndus, inPath, total, (doneB, totB) => {
-      job.detail = `downloading ${Math.floor((doneB / totB) * 100)}%`;
+      const pct = Math.floor((doneB / totB) * 100);
+      job.detail = `downloading ${pct}%`;
+      if (pct >= nextMilestone) {
+        nextMilestone = pct - (pct % 25) + 25;
+        setStage(job, `🗜️ Compressing… ⬇️ downloading ${pct}%`, true);
+      }
     });
 
     job.status = "compressing";
+    job.detail = "compressing";
+    await setStage(job, "🗜️ Compressing… 🎞️ encoding compact video", true);
     await runFfmpeg(inPath, outPath, JOB_TIMEOUT_MS - 5 * 60 * 1000);
 
     job.status = "uploading";
+    job.detail = "uploading";
+    await setStage(job, "🗜️ Compressing… ⬆️ sending to Telegram", true);
     const messageId = await tgUpload(job.bot_token, job.chat_id, job.fileName, outPath);
+
+    // The video is in — now replace the status card with it.
+    await deleteStatusCard(job);
 
     job.status = "done";
     job.detail = `compact video sent (message ${messageId})`;
   } catch (e) {
     job.status = "failed";
     job.detail = String((e && e.message) || e).slice(0, 300);
+    // Leave the card in place (it carries the download link), marked failed.
+    await setStage(job, "❌ Compression failed — the full file is at the link below.", true);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     // scrub secrets
     job.dlink = "";
     job.ndus = "";
     job.bot_token = "";
+    job.fallback_link = "";
     active = false;
     pump();
   }
@@ -410,7 +494,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/api/jobs") {
       const list = [...jobs.values()]
-        .map(({ dlink, ndus, bot_token, ...safe }) => safe)
+        .map(({ dlink, ndus, bot_token, fallback_link, ...safe }) => safe)
         .slice(-20)
         .reverse();
       return json(res, 200, { ok: true, jobs: list });
@@ -418,13 +502,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname.startsWith("/api/jobs/")) {
       const job = jobs.get(url.pathname.split("/").pop());
       if (!job) return json(res, 404, { ok: false, error: "unknown job" });
-      const { dlink, ndus, bot_token, ...safe } = job;
+      const { dlink, ndus, bot_token, fallback_link, ...safe } = job;
       return json(res, 200, { ok: true, job: safe });
     }
     if (req.method === "POST" && url.pathname === "/api/transcode") {
       const b = await readJson(req);
       if (!KEY || b.key !== KEY) return json(res, 403, { ok: false, error: "bad key" });
-      const { dlink, ndus, fileName, chat_id, bot_token, surl, fs_id } = b;
+      const { dlink, ndus, fileName, chat_id, bot_token, surl, fs_id,
+        status_message_id, status_is_photo, fallback_link, size } = b;
       if (!dlink || !isTeraBoxDlink(dlink) || !ndus || !chat_id || !bot_token) {
         return json(res, 400, { ok: false, error: "missing dlink/ndus/chat_id/bot_token" });
       }
@@ -444,6 +529,10 @@ const server = http.createServer(async (req, res) => {
         fs_id: String(fs_id || ""),
         chat_id: String(chat_id),
         bot_token,
+        status_message_id: Number(status_message_id || 0),
+        status_is_photo: !!status_is_photo,
+        fallback_link: String(fallback_link || "").slice(0, 500),
+        size: Number(size || 0),
       };
       jobs.set(id, job);
       queue.push(job);
