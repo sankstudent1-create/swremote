@@ -209,9 +209,36 @@ type Config struct {
 	AutoRunSet bool    `json:"autorun_set"` // true once the user (or first-run default) decided about auto-start
 }
 
-func configPath() string {
+func legacyConfigPath() string {
 	exe, _ := os.Executable()
 	return filepath.Join(filepath.Dir(exe), "swremote.json")
+}
+
+// configPath is the ONE identity file for this PC (v8.9.5): the install
+// folder %LOCALAPPDATA%\SWRemote. Before v8.9.5 the file lived next to the
+// exe, so every copy of the agent (Downloads, Desktop, install folder)
+// generated its own device ID and the console filled up with duplicate
+// entries for the same PC. The installer, the wake service and now the
+// agent all use this one folder, so one PC = one ID no matter which copy
+// runs. Falls back to the exe folder when LOCALAPPDATA is unset.
+func configPath() string {
+	if la := os.Getenv("LOCALAPPDATA"); la != "" {
+		return filepath.Join(la, "SWRemote", "swremote.json")
+	}
+	return legacyConfigPath()
+}
+
+// writeConfigFile persists to the canonical path AND the legacy exe-side
+// path (best effort). Writing both makes old copies converge on the same
+// ID too: any copy that runs v8.9.5+ rewrites its own side file to match.
+func writeConfigFile(c *Config) {
+	b := mustJSON(c)
+	p := configPath()
+	_ = os.MkdirAll(filepath.Dir(p), 0755)
+	_ = os.WriteFile(p, b, 0600)
+	if lp := legacyConfigPath(); lp != p {
+		_ = os.WriteFile(lp, b, 0600)
+	}
 }
 
 func randomID() string {
@@ -250,7 +277,16 @@ func loadConfig() *Config {
 	if hn, err := os.Hostname(); err == nil {
 		c.Name = hn
 	}
-	if data, err := os.ReadFile(configPath()); err == nil {
+	// v8.9.5: read the canonical file; if it does not exist yet, migrate
+	// the exe-side file (pre-v8.9.5 installs / portable copies) so the PC
+	// keeps its existing ID instead of minting a duplicate device.
+	data, err := os.ReadFile(configPath())
+	if err != nil {
+		if legacy, lerr := os.ReadFile(legacyConfigPath()); lerr == nil {
+			data, err = legacy, nil
+		}
+	}
+	if err == nil {
 		_ = json.Unmarshal(data, c)
 	}
 	if c.DeviceID == "" {
@@ -271,14 +307,14 @@ func loadConfig() *Config {
 	if c.Scale < 0.25 || c.Scale > 1 {
 		c.Scale = 1.0
 	}
-	_ = os.WriteFile(configPath(), mustJSON(c), 0600)
+	writeConfigFile(c)
 	return c
 }
 
 func saveConfig() {
 	cfgMu.Lock()
 	defer cfgMu.Unlock()
-	_ = os.WriteFile(configPath(), mustJSON(cfg), 0600)
+	writeConfigFile(cfg)
 }
 
 func mustJSON(v any) []byte {
@@ -774,7 +810,7 @@ func runSession(cfg *Config) error {
 		case "call-start":
 			onCallStart(msg)
 		case "call-end":
-			onCallEnd()
+			onCallEnd(msg)
 		case "av-state":
 			onPeerAV(msg)
 		case "av-ctrl":

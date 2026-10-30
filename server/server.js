@@ -169,13 +169,22 @@ const httpServer = http.createServer((req, res) => {
     };
     const agentId = decodeURIComponent(url.pathname.slice("/api/devices/".length));
     (async () => {
-      if (!sbOn) return done(200, { ok: true });
+      if (!sbOn) {
+        // no accounts: forget the local record too, so a removed device
+        // cannot be PIN-joined back until it re-registers
+        if (store.devices[agentId]) { delete store.devices[agentId]; saveStore(); }
+        return done(200, { ok: true });
+      }
       const user = await sbVerify(bearerToken(req));
       if (!user) return done(401, { error: "sign in required" });
       const r = await sb("/rest/v1/devices?user_id=eq." + encodeURIComponent(user.id) + "&agent_id=eq." + encodeURIComponent(agentId), {
         method: "DELETE", token: bearerToken(req),
       });
       if (!r.ok) return done(502, { error: "could not remove device" });
+      // v8.9.5: forget the local record too — otherwise the removed device
+      // could still be PIN-joined back. It returns on next agent register
+      // (with its current link code) if the user re-adds it.
+      if (store.devices[agentId]) { delete store.devices[agentId]; saveStore(); }
       done(200, { ok: true });
     })().catch(() => done(500, { error: "remove failed" }));
     return;

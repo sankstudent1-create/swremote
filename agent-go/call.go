@@ -27,6 +27,13 @@ var (
 	callPeerCam  = true
 	callPeerMic  = true
 	playMuted    bool // this PC muted the peer's audio/video
+	// v8.9.5: end-grace — a call-end does not tear down at once. One End
+	// tap (accidental, or from a second viewer) used to kill the call
+	// instantly while other viewers sat on a dead call thinking it had
+	// "auto disconnected". The call now holds 15s: a rejoin in that window
+	// resumes the same call, and only the real teardown is broadcast.
+	callEnding   bool
+	callEndTimer *time.Timer
 
 	videoHWND uintptr
 	videoImg  image.Image
@@ -84,6 +91,24 @@ func onCallStart(msg map[string]any) {
 	}
 	log("call-start received from %s", name) // v8.4.0: lifecycle marker
 	callMu.Lock()
+	if callEnding {
+		// v8.9.5: a viewer rejoined inside the end-grace window — resume
+		// the same call. Window and capture never stopped, so just accept.
+		if callEndTimer != nil {
+			callEndTimer.Stop()
+			callEndTimer = nil
+		}
+		callEnding = false
+		callActive = true
+		callPeerName = name
+		cam, mic := pcCamOn, pcMicOn
+		callMu.Unlock()
+		sendWSJSON(map[string]any{"t": "call-accept"})
+		sendWSJSON(map[string]any{"t": "av-state", "side": "agent", "cam": cam, "mic": mic})
+		guiSetStatus("On a call with "+name, true)
+		log("call resumed within end-grace window")
+		return
+	}
 	if callActive {
 		callMu.Unlock()
 		sendWSJSON(map[string]any{"t": "call-decline"})
@@ -109,20 +134,52 @@ func onCallStart(msg map[string]any) {
 	notify("SWRemote call", "Video call with "+name)
 }
 
-func onCallEnd() {
-	callMu.Lock()
-	was := callActive
-	callActive = false
-	callMu.Unlock()
-	if was {
-		log("call-end received") // v8.4.0: lifecycle marker
-		closeVideoWindow()
-		stopAudio()
-		stopPCCapture()
-		guiSetStatus("Online — waiting for viewers…", true)
-		notify("SWRemote call", "Call ended")
-		installPendingUpdate() // v8.5.0: update deferred until the call ended
+func onCallEnd(msg map[string]any) {
+	name, _ := msg["name"].(string)
+	if name == "" {
+		name = "a viewer"
 	}
+	callMu.Lock()
+	if !callActive || callEnding {
+		callMu.Unlock()
+		return
+	}
+	// v8.9.5: hold 15s instead of tearing down at once. A rejoin in that
+	// window resumes the call (see onCallStart); only the real teardown
+	// below is broadcast, so no viewer is left on a dead call.
+	callEnding = true
+	peer := callPeerName
+	callMu.Unlock()
+	log("call-end received from %s — holding 15s for rejoin", name)
+	sendWSJSON(map[string]any{"t": "call-ending", "from": name})
+	callMu.Lock()
+	callEndTimer = time.AfterFunc(15*time.Second, func() {
+		teardownCall(peer)
+	})
+	callMu.Unlock()
+}
+
+func teardownCall(peer string) {
+	callMu.Lock()
+	if !callActive {
+		callMu.Unlock()
+		return
+	}
+	callActive = false
+	callEnding = false
+	callEndTimer = nil
+	callMu.Unlock()
+	log("call ended")
+	closeVideoWindow()
+	stopAudio()
+	stopPCCapture()
+	guiSetStatus("Online — waiting for viewers…", true)
+	notify("SWRemote call", "Call ended")
+	// v8.9.5: tell EVERY viewer the call is over, with who ended it.
+	// Before, only the viewer that pressed End knew — the others sat on a
+	// dead call thinking it had "auto disconnected".
+	sendWSJSON(map[string]any{"t": "call-end", "from": peer})
+	installPendingUpdate() // v8.5.0: update deferred until the call ended
 }
 
 // av-state: the peer muted/unmuted their cam/mic

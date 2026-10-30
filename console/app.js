@@ -1211,7 +1211,7 @@ function meetingStop() {
   $("meeting-pc-off").style.display = "none";
   meetingExit();
 }
-$("m-end").onclick = () => { callSend({ t: "call-end" }); meetingStop(); toast("Meeting ended"); };
+$("m-end").onclick = () => { callSend({ t: "call-end", name: myProfile.display_name || "Guest" }); meetingStop(); toast("Meeting ended"); };
 $("m-mic").onclick = () => {
   callMicOn = !callMicOn;
   const b = $("m-mic");
@@ -1245,7 +1245,7 @@ $("m-pc-cam").onclick = () => {
 let pcCamOn = true, pcMicOn = true;
 function onCallSignal(m) {
   if (m.t === "call-accept" && callState === "calling") { callState = "incall"; toast("Meeting connected"); }
-  else if (m.t === "call-end" && callState !== "idle") { meetingStop(); toast("They ended the meeting"); }
+  else if (m.t === "call-end" && callState !== "idle") { meetingStop(); toast((m.from ? m.from + " ended" : "They ended") + " the meeting"); }
   else if (m.t === "call-decline" && callState === "calling") { meetingStop(); toast("They declined"); }
   else if (m.t === "av-state" && m.side === "agent") {
     pcCamOn = m.cam !== false; pcMicOn = m.mic !== false;

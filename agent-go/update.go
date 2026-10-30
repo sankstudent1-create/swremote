@@ -226,6 +226,7 @@ func doUninstall() {
 		"if not errorlevel 1 (timeout /t 1 /nobreak >nul & goto loop)\r\n" +
 		"del /F /Q \"" + exe + "\"\r\n" +
 		"del /F /Q \"" + filepath.Join(dir, "swremote.json") + "\" 2>nul\r\n" +
+		"del /F /Q \"" + filepath.Join(filepath.Dir(exe), "swremote.json") + "\" 2>nul\r\n" +
 		"rmdir \"" + dir + "\" 2>nul\r\n" +
 		"del \"%~f0\"\r\n"
 	_ = os.WriteFile(bat, []byte(script), 0644)
