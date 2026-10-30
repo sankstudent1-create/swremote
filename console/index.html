@@ -110,13 +110,15 @@
       </div>
 
       <section id="how-card" class="how">
-        <h2 class="sect-title">How it works</h2>
-        <ol class="steps">
-          <li class="step"><span class="step-n">1</span><span><b>On the PC:</b> open <b>SWRemote-Agent.exe</b> — a window shows its ID and PIN.</span></li>
-          <li class="step"><span class="step-n">2</span><span><b>Claim it:</b> tap <b>Add device</b> and enter the link code from the PC app.</span></li>
-          <li class="step"><span class="step-n">3</span><span><b>Connect:</b> tap a device — you're signed in on both sides.</span></li>
-        </ol>
-        <p class="how-foot" id="acct-row"></p>
+        <details>
+          <summary><span class="sect-title">How it works</span></summary>
+          <ol class="steps">
+            <li class="step"><span class="step-n">1</span><span><b>On the PC:</b> open <b>SWRemote-Agent.exe</b> — a window shows its ID and PIN.</span></li>
+            <li class="step"><span class="step-n">2</span><span><b>Claim it:</b> tap <b>Add device</b> and enter the link code from the PC app.</span></li>
+            <li class="step"><span class="step-n">3</span><span><b>Connect:</b> tap a device — you're signed in on both sides.</span></li>
+          </ol>
+          <p class="how-foot" id="acct-row"></p>
+        </details>
       </section>
     </div>
 
@@ -192,7 +194,7 @@
 <section id="scr-session" class="screen">
   <header class="session-bar">
     <button id="btn-disconnect" class="icon-btn" title="Disconnect" aria-label="Disconnect"><span class="mi">close</span></button>
-    <div class="sess-title"><span id="sess-dot" class="dot"></span><span id="sess-name">—</span><span id="sess-fps" class="fps-pill"></span></div>
+    <div class="sess-title"><span id="sess-dot" class="dot"></span><span id="sess-name">—</span><span id="sess-fps" class="fps-pill"></span><span id="sess-lat" class="fps-pill"></span><span id="rec-ind" class="fps-pill rec hidden">● REC <span id="rec-time">0:00</span></span></div>
     <div class="sess-spacer"></div>
   </header>
 
@@ -219,6 +221,8 @@
         <span class="pip-label">PC camera</span>
       </div>
     </div>
+    <!-- Streamer recording: your camera, bottom-right over the screen -->
+    <video id="stream-cam" class="stream-cam hidden" autoplay playsinline muted></video>
   </div>
 
   <div id="keybar" class="keybar hidden">
@@ -232,11 +236,11 @@
   <nav class="toolbar" id="session-toolbar">
     <button id="btn-kbd" title="Keyboard"><span class="mi t-ico">keyboard</span><span class="t-label">Keys</span></button>
     <button id="btn-chat" title="Chat"><span class="mi t-ico">chat_bubble</span><span class="t-label">Chat</span></button>
-    <button id="btn-files" title="Send file"><span class="mi t-ico">folder</span><span class="t-label">Files</span></button>
     <button id="btn-quality" title="Quality"><span class="mi t-ico">tune</span><span class="t-label">Quality</span></button>
     <button id="btn-call" title="Start meeting"><span class="mi t-ico">videocam</span><span class="t-label">Meet</span></button>
     <button id="btn-full" title="Fullscreen"><span class="mi t-ico">fullscreen</span><span class="t-label">Full</span></button>
-    <button id="btn-lock" title="Lock PC"><span class="mi t-ico">lock</span><span class="t-label">Lock</span></button>
+    <button id="btn-record" title="Record session"><span class="mi t-ico">fiber_manual_record</span><span class="t-label">Rec</span></button>
+    <button id="btn-more" title="More"><span class="mi t-ico">more_horiz</span><span class="t-label">More</span></button>
   </nav>
 
   <!-- Meeting control bar (replaces toolbar during a meeting) -->
@@ -267,10 +271,28 @@
   </aside>
 
   <div id="quality-pop" class="popover hidden">
+    <div class="q-presets">
+      <button type="button" data-q="65" data-s="0.8">Standard</button>
+      <button type="button" data-q="85" data-s="1">High</button>
+      <button type="button" data-q="90" data-s="1">Ultra</button>
+    </div>
     <label for="q-quality">Quality</label>
-    <select id="q-quality"><option value="30">Low — fast</option><option value="65" selected>Medium</option><option value="85">High — sharp</option></select>
+    <select id="q-quality"><option value="30">Low — fast</option><option value="65" selected>Medium</option><option value="85">High — sharp</option><option value="90">Ultra — max</option></select>
     <label for="q-scale">Size</label>
     <select id="q-scale"><option value="0.5">Small</option><option value="0.8" selected>Normal</option><option value="1">Full</option></select>
+  </div>
+
+  <div id="rec-pop" class="popover hidden">
+    <label>Record this session</label>
+    <p class="hint">Saves a video file on this device when you stop recording.</p>
+    <button class="btn btn--volt btn--block rec-mode" data-mode="screen">Screen only</button>
+    <button class="btn btn--volt btn--block rec-mode" data-mode="audio">Screen + PC audio</button>
+    <button class="btn btn--volt btn--block rec-mode" data-mode="streamer">Streamer: screen + your camera &amp; mic</button>
+  </div>
+
+  <div id="more-pop" class="popover hidden">
+    <button id="btn-files" title="Send file"><span class="mi t-ico">folder</span><span>Send file</span></button>
+    <button id="btn-lock" title="Lock PC"><span class="mi t-ico">lock</span><span>Lock PC</span></button>
   </div>
 </section>
 

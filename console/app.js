@@ -724,11 +724,13 @@ function openSessionWs() {
   ws.onerror = () => { try { ws.close(); } catch {} };
 }
 function closeWs() {
+  stopLatLoop();
   if (ws) { ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null; try { ws.close(); } catch {} }
   ws = null;
 }
 $("btn-disconnect").onclick = () => {
   sessIntentionalClose = true;
+  stopRecording();
   clearTimeout(wsReconnectTimer);
   sessCreds = null; sessDevice = null;
   closeWs(); enterDevices();
@@ -753,6 +755,7 @@ function onWsMsg(ev) {
     setStatus(""); $("sess-dot").className = "dot on";
     if (m.screen) sizeCanvas(m.screen.w, m.screen.h);
     ws.send(JSON.stringify({ t: "keyframe" })); // ask for a full frame now
+    startLatLoop(); // v10.4: live latency pill (needs agent v8.9.4 pong)
     if (wasReconnect && frameW) toast("Reconnected ⚡");
     const hooks = joinHooks; joinHooks = [];
     hooks.forEach((fn) => { try { fn(); } catch {} });
@@ -762,6 +765,11 @@ function onWsMsg(ev) {
   else if (m.t === "agent_back") { setStatus(""); $("sess-dot").className = "dot on"; }
   else if (m.t === "chat") addChat(m.text, false);
   else if (m.t === "cursor") moveRemoteCursor(m.x, m.y);
+  else if (m.t === "pong" && m.ts) { // v10.4: live session latency
+    const ms = Date.now() - m.ts, el = $("sess-lat");
+    el.textContent = ms + "ms";
+    el.style.color = ms < 150 ? "var(--mint-ink)" : ms < 400 ? "#B54708" : "var(--coral-ink)";
+  }
   else if (m.t === "file_meta") noteFileFromAgent(m);
   else if (m.t === "call-accept" || m.t === "call-end" || m.t === "call-decline" || m.t === "av-state") onCallSignal(m);
   else if (m.t === "logs") onLogsMessage(m);
@@ -789,7 +797,9 @@ function playPCAudio(pcm) {
     const dv = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength);
     for (let i = 0; i < n; i++) ch[i] = dv.getInt16(i * 2, true) / 32768;
     const src = pcAudioCtx.createBufferSource();
-    src.buffer = buf; src.connect(pcAudioCtx.destination); src.start();
+    src.buffer = buf; src.connect(pcAudioCtx.destination);
+    if (recAudioDest) { try { src.connect(recAudioDest); } catch {} } // v10.4: PC audio joins the recording mix
+    src.start();
   } catch {}
 }
 
@@ -1377,14 +1387,127 @@ function recvFileChunk(u8) {
 }
 
 /* ---------- quality / lock ---------- */
-$("btn-quality").onclick = () => $("quality-pop").classList.toggle("hidden");
+function closePops(except) {
+  ["quality-pop", "rec-pop", "more-pop"].forEach((id) => { if (id !== except) $(id).classList.add("hidden"); });
+}
+$("btn-quality").onclick = () => { closePops("quality-pop"); $("quality-pop").classList.toggle("hidden"); };
+$("btn-more").onclick = () => { closePops("more-pop"); $("more-pop").classList.toggle("hidden"); };
+$("more-pop").addEventListener("click", () => $("more-pop").classList.add("hidden"));
 function pushQuality() {
   if (!ws) return;
   ws.send(JSON.stringify({ t: "quality", q: +$("q-quality").value, scale: +$("q-scale").value }));
 }
 $("q-quality").onchange = pushQuality;
 $("q-scale").onchange = pushQuality;
+document.querySelectorAll(".q-presets button").forEach((b) => b.onclick = () => {
+  $("q-quality").value = b.dataset.q; $("q-scale").value = b.dataset.s; pushQuality();
+  $("quality-pop").classList.add("hidden");
+  toast("Quality: " + b.textContent);
+});
 $("btn-lock").onclick = () => { if (ws && confirm("Lock the remote PC now?")) ws.send(JSON.stringify({ t: "lock" })); };
+
+/* ---------- session latency (v10.4, needs agent v8.9.4 pong) ---------- */
+let latTimer = null;
+function startLatLoop() {
+  stopLatLoop();
+  latTimer = setInterval(() => {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: "ping", ts: Date.now() }));
+  }, 5000);
+}
+function stopLatLoop() { if (latTimer) { clearInterval(latTimer); latTimer = null; } }
+
+/* ---------- session recording / streamer (v10.4) ---------- */
+let rec = null, recAudioDest = null, recRaf = 0;
+$("btn-record").onclick = () => {
+  if (rec) { stopRecording(); return; }
+  closePops("rec-pop"); $("rec-pop").classList.toggle("hidden");
+};
+document.querySelectorAll(".rec-mode").forEach((b) => b.onclick = () => startRecording(b.dataset.mode));
+async function startRecording(mode) {
+  $("rec-pop").classList.add("hidden");
+  try {
+    let camStream = null, mixCtx = null, ownCtx = false;
+    if (mode !== "screen") {
+      // reuse the session's PC-audio context so playPCAudio feeds the mix
+      pcAudioCtx = pcAudioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      mixCtx = pcAudioCtx; ownCtx = false;
+      if (mixCtx.state === "suspended") await mixCtx.resume();
+      recAudioDest = mixCtx.createMediaStreamDestination();
+    }
+    if (mode === "streamer") {
+      camStream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: true });
+      const v = $("stream-cam");
+      v.srcObject = camStream; v.classList.remove("hidden");
+      if (camStream.getAudioTracks().length && mixCtx) {
+        mixCtx.createMediaStreamSource(new MediaStream(camStream.getAudioTracks())).connect(recAudioDest);
+      }
+    }
+    let videoStream = canvas.captureStream(30);
+    if (camStream) {
+      const comp = document.createElement("canvas");
+      comp.width = canvas.width || 1280; comp.height = canvas.height || 720;
+      const cx = comp.getContext("2d"), v = $("stream-cam");
+      const draw = () => {
+        if (!rec) return;
+        cx.drawImage(canvas, 0, 0, comp.width, comp.height);
+        if (v.readyState >= 2) {
+          const w = Math.round(comp.width * 0.28), h = Math.round(w * 3 / 4);
+          cx.drawImage(v, comp.width - w - 16, comp.height - h - 16, w, h);
+        }
+        recRaf = requestAnimationFrame(draw);
+      };
+      videoStream = comp.captureStream(30);
+      rec = { placeholder: true }; // draw loop runs only while rec is set
+      draw();
+    }
+    const tracks = [...videoStream.getVideoTracks()];
+    if (recAudioDest) tracks.push(...recAudioDest.stream.getAudioTracks());
+    const stream = new MediaStream(tracks);
+    const mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"]
+      .find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
+    const recorder = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 4000000 } : undefined);
+    const chunks = [];
+    recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    recorder.onstop = () => {
+      const blob = new Blob(chunks, { type: "video/webm" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "swremote-recording-" + new Date().toISOString().replace(/[:.]/g, "-") + ".webm";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      toast("Recording saved");
+    };
+    recorder.start(1000);
+    const startedAt = Date.now();
+    rec = {
+      recorder, camStream, mixCtx, ownCtx,
+      timer: setInterval(() => {
+        const s = Math.floor((Date.now() - startedAt) / 1000);
+        $("rec-time").textContent = Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+      }, 1000),
+    };
+    $("rec-ind").classList.remove("hidden");
+    $("btn-record").classList.add("on");
+    toast(mode === "streamer" ? "Streamer recording started — your camera is in the corner" : "Recording started");
+  } catch (e) {
+    recAudioDest = null;
+    toast("Recording failed: " + (e.message || e));
+  }
+}
+function stopRecording() {
+  if (!rec) return;
+  const r = rec; rec = null;
+  try { r.recorder.stop(); } catch {}
+  cancelAnimationFrame(recRaf);
+  clearInterval(r.timer);
+  if (r.camStream) r.camStream.getTracks().forEach((t) => t.stop());
+  if (r.mixCtx && r.ownCtx) { try { r.mixCtx.close(); } catch {} }
+  recAudioDest = null;
+  $("stream-cam").classList.add("hidden");
+  $("stream-cam").srcObject = null;
+  $("rec-ind").classList.add("hidden");
+  $("btn-record").classList.remove("on");
+}
 
 /* ---------- clear cache & reload latest ---------- */
 $("btn-clear-cache").onclick = async () => {

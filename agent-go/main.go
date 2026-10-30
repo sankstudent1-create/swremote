@@ -720,6 +720,8 @@ func runSession(cfg *Config) error {
 				cfg.Scale = clampFloat(s, 0.25, 1.0)
 			}
 			fmt.Println("quality ->", cfg.Quality, "scale ->", cfg.Scale)
+		case "ping": // v8.9.4: console latency probe — echo the timestamp back
+			_ = wsWrite(websocket.TextMessage, []byte(fmt.Sprintf(`{"t":"pong","ts":%v}`, msg["ts"])))
 		case "keyframe":
 			needKeyframe.Store(true)
 		case "chat":

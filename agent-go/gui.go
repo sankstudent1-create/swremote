@@ -356,11 +356,14 @@ func applyStatus() {
 	}
 	gState.mu.Unlock()
 	setText(ctlStatus, t)
-	// repaint the dot so WM_CTLCOLORSTATIC recolors it, and repaint the header pill
+	// repaint the dot so WM_CTLCOLORSTATIC recolors it, and repaint only
+	// the header band (v8.9.4: was a full-window repaint on every status
+	// change, which re-drew logo/profile art for no reason).
 	if h, ok := gCtl[ctlDot]; ok {
 		pInvalidateRect.Call(h, 0, 1)
 	}
-	pInvalidateRect.Call(gHWND, 0, 1)
+	var hdr = [4]int32{0, 0, 2000, 110}
+	pInvalidateRect.Call(gHWND, uintptr(unsafe.Pointer(&hdr)), 1)
 }
 
 // drawProfile paints the device identity card: monogram avatar, device name,
@@ -602,8 +605,13 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		refreshMeta()
 		return 0
 	case WM_TIMER:
-		heartbeatTick() // v8.9.0: watchdog heartbeat
-		refreshMeta()
+		heartbeatTick() // v8.9.4: the timer ONLY ticks the heartbeat now.
+		// The per-second label refresh goes out as its own message instead
+		// of running inside the timer handler: a slow refresh (blocked
+		// label update, stalled paint) used to stall the heartbeat itself,
+		// so the watchdog mistook a busy UI for a dead one and restarted
+		// mid-call. WM_APP_META already runs refreshMeta().
+		pPostMessageW.Call(gHWND, WM_APP_META, 0, 0)
 		return 0
 	case WM_COMMAND:
 		id := int(wp & 0xFFFF)
@@ -953,5 +961,6 @@ func runGUI() {
 		}
 		pTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
 		pDispatchMessageW.Call(uintptr(unsafe.Pointer(&m)))
+		heartbeatTick() // v8.9.4: the pump itself proves the GUI thread alive
 	}
 }

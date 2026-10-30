@@ -445,6 +445,19 @@ a{color:inherit;}
 #meeting-timer{display:inline-flex; align-items:center; gap:6px; color:var(--zest); background:rgba(255,225,77,.14);}
 #meeting-timer::before{content:""; width:7px; height:7px; border-radius:50%; background:var(--coral); animation:pulse 2s infinite;}
 
+/* ---------- v10.4: recording / streamer / presets / declutter ---------- */
+#sess-lat:empty{display:none;}
+#rec-ind{background:rgba(255,107,107,.14); color:var(--coral-ink);}
+.stream-cam{position:absolute; right:12px; bottom:84px; width:128px; aspect-ratio:4/3; object-fit:cover; border-radius:var(--r-md); border:2px solid #fff; box-shadow:var(--sh-float); z-index:5;}
+.q-presets{display:flex; gap:8px; margin-bottom:2px;}
+.q-presets button{flex:1; min-height:44px; border-radius:var(--r-sm); background:var(--volt-tint); color:var(--volt-deep); font-weight:700; font-size:var(--t-sm);}
+.q-presets button:active{transform:scale(.96);}
+.more-pop button{display:flex; align-items:center; gap:10px; width:100%; min-height:52px; padding:0 12px; border-radius:var(--r-sm); font-weight:700; text-align:left; color:var(--ink);}
+.more-pop button:active{background:var(--paper-2);}
+.more-pop .t-ico{font-size:22px;}
+#rec-pop .btn + .btn{margin-top:10px;}
+.how summary{cursor:pointer;}
+
 .stage{
   position:relative; display:flex; align-items:center; justify-content:center; min-height:0; overflow:auto; touch-action:none;
   -webkit-overflow-scrolling:touch;
