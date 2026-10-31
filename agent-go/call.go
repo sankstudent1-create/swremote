@@ -121,6 +121,7 @@ func onCallStart(msg map[string]any) {
 	callPeerName = name
 	callPeerCam, callPeerMic = true, true
 	playMuted = false
+	viewerFrames, viewerFrameLogged = 0, false
 	// PC camera+mic are ON by default when a call connects
 	pcCamOn, pcMicOn = true, true
 	callMu.Unlock()
@@ -238,12 +239,26 @@ func onOff(b bool) string {
 
 // ---------- incoming media from the peer ----------
 
+// viewerFrames counts viewer camera frames in the current call (reset in
+// onCallStart) — v8.9.6 logs the first one so a "PC shows only call
+// started" report can be told apart from "frames never arrived".
+var viewerFrames int
+var viewerFrameLogged bool
+
 func handleViewerFrame(jpeg []byte) {
 	callMu.Lock()
-	active, peerCam, muted := callActive, callPeerCam, playMuted
+	active, peerCam := callActive, callPeerCam
 	callMu.Unlock()
-	if !active || !peerCam || muted {
+	if !active || !peerCam {
 		return
+	}
+	// v8.9.6: mute is audio-only — it used to drop video frames too.
+	viewerFrames++
+	if !viewerFrameLogged {
+		viewerFrameLogged = true
+		log("viewer camera: first frame received")
+	} else if viewerFrames%300 == 0 {
+		log("viewer camera: %d frames received", viewerFrames)
 	}
 	img, _, err := image.Decode(bytes.NewReader(jpeg))
 	if err != nil {

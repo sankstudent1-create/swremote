@@ -3,6 +3,11 @@
     "APP": {
       "0000": [
         "icon.png",
+        "icon128.png",
+        "icon64.png",
+        "icon48.png",
+        "icon32.png",
+        "icon24.png",
         "icon16.png"
       ]
     }
@@ -36,8 +41,8 @@
     "#1": {
       "0000": {
         "fixed": {
-          "file_version": "8.2.2.0",
-          "product_version": "8.2.2.0"
+          "file_version": "8.9.6",
+          "product_version": "8.9.6"
         },
         "info": {
           "0409": {

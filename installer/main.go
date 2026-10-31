@@ -48,44 +48,48 @@ var (
 	o32 = windows.NewLazySystemDLL("ole32.dll")
 	c32 = windows.NewLazySystemDLL("comctl32.dll")
 
-	pDefWindowProcW   = u32.NewProc("DefWindowProcW")
-	pRegisterClassExW = u32.NewProc("RegisterClassExW")
-	pCreateWindowExW  = u32.NewProc("CreateWindowExW")
-	pShowWindow       = u32.NewProc("ShowWindow")
-	pUpdateWindow     = u32.NewProc("UpdateWindow")
-	pGetMessageW      = u32.NewProc("GetMessageW")
-	pTranslateMessage = u32.NewProc("TranslateMessage")
-	pDispatchMessageW = u32.NewProc("DispatchMessageW")
-	pPostQuitMessage  = u32.NewProc("PostQuitMessage")
-	pDestroyWindow    = u32.NewProc("DestroyWindow")
-	pPostMessageW     = u32.NewProc("PostMessageW")
-	pSetWindowTextW   = u32.NewProc("SetWindowTextW")
-	pGetWindowTextW   = u32.NewProc("GetWindowTextW")
-	pMessageBoxW      = u32.NewProc("MessageBoxW")
-	pBeginPaint       = u32.NewProc("BeginPaint")
-	pEndPaint         = u32.NewProc("EndPaint")
-	pFillRect         = u32.NewProc("FillRect")
-	pDrawTextW        = u32.NewProc("DrawTextW")
-	pSetBkMode        = u32.NewProc("SetBkMode")
-	pSetTextColor     = u32.NewProc("SetTextColor")
-	pSelectObject     = u32.NewProc("SelectObject")
-	pFindWindowW      = u32.NewProc("FindWindowW")
-	pGetSystemMetrics = u32.NewProc("GetSystemMetrics")
-	pCreateSolidBrush = g32.NewProc("CreateSolidBrush")
-	pCreatePen        = g32.NewProc("CreatePen")
-	pCreateFontW      = g32.NewProc("CreateFontW")
-	pDeleteObject     = g32.NewProc("DeleteObject")
-	pLoadImageW       = u32.NewProc("LoadImageW")
-	pSendMessageW     = u32.NewProc("SendMessageW")
-	pInitCommon       = c32.NewProc("InitCommonControlsEx")
-	pCoCreateInstance = o32.NewProc("CoCreateInstance")
-	pCoInitializeEx  = o32.NewProc("CoInitializeEx")
-	pSHGetFolderPathW = s32.NewProc("SHGetFolderPathW")
-	pRoundRect        = g32.NewProc("RoundRect")
-	pEllipse          = g32.NewProc("Ellipse")
-	pInvalidateRect   = u32.NewProc("InvalidateRect")
-	pGetDlgCtrlID     = u32.NewProc("GetDlgCtrlID")
-	pIsWindowVisible  = u32.NewProc("IsWindowVisible")
+	pDefWindowProcW       = u32.NewProc("DefWindowProcW")
+	pRegisterClassExW     = u32.NewProc("RegisterClassExW")
+	pCreateWindowExW      = u32.NewProc("CreateWindowExW")
+	pShowWindow           = u32.NewProc("ShowWindow")
+	pUpdateWindow         = u32.NewProc("UpdateWindow")
+	pGetMessageW          = u32.NewProc("GetMessageW")
+	pTranslateMessage     = u32.NewProc("TranslateMessage")
+	pDispatchMessageW     = u32.NewProc("DispatchMessageW")
+	pPostQuitMessage      = u32.NewProc("PostQuitMessage")
+	pDestroyWindow        = u32.NewProc("DestroyWindow")
+	pPostMessageW         = u32.NewProc("PostMessageW")
+	pSetWindowTextW       = u32.NewProc("SetWindowTextW")
+	pGetWindowTextW       = u32.NewProc("GetWindowTextW")
+	pMessageBoxW          = u32.NewProc("MessageBoxW")
+	pBeginPaint           = u32.NewProc("BeginPaint")
+	pEndPaint             = u32.NewProc("EndPaint")
+	pFillRect             = u32.NewProc("FillRect")
+	pDrawTextW            = u32.NewProc("DrawTextW")
+	pSetBkMode            = u32.NewProc("SetBkMode")
+	pSetTextColor         = u32.NewProc("SetTextColor")
+	pSelectObject         = u32.NewProc("SelectObject")
+	pFindWindowW          = u32.NewProc("FindWindowW")
+	pGetSystemMetrics     = u32.NewProc("GetSystemMetrics")
+	pCreateSolidBrush     = g32.NewProc("CreateSolidBrush")
+	pCreatePen            = g32.NewProc("CreatePen")
+	pCreateFontW          = g32.NewProc("CreateFontW")
+	pDeleteObject         = g32.NewProc("DeleteObject")
+	pLoadImageW           = u32.NewProc("LoadImageW")
+	pSendMessageW         = u32.NewProc("SendMessageW")
+	pInitCommon           = c32.NewProc("InitCommonControlsEx")
+	pCoCreateInstance     = o32.NewProc("CoCreateInstance")
+	pCoInitializeEx       = o32.NewProc("CoInitializeEx")
+	pSHGetFolderPathW     = s32.NewProc("SHGetFolderPathW")
+	pRoundRect            = g32.NewProc("RoundRect")
+	pEllipse              = g32.NewProc("Ellipse")
+	pInvalidateRect       = u32.NewProc("InvalidateRect")
+	pGetDlgCtrlID         = u32.NewProc("GetDlgCtrlID")
+	pIsWindowVisible      = u32.NewProc("IsWindowVisible")
+	pEnableWindow         = u32.NewProc("EnableWindow")
+	pSHBrowseForFolderW   = s32.NewProc("SHBrowseForFolderW")
+	pSHGetPathFromIDListW = s32.NewProc("SHGetPathFromIDListW")
+	pCoTaskMemFree        = o32.NewProc("CoTaskMemFree")
 )
 
 const (
@@ -125,6 +129,7 @@ const (
 	WM_CTLCOLORSTATIC = 28
 	WM_DRAWITEM       = 43
 	ODS_SELECTED      = 1
+	ODS_DISABLED      = 4
 	DT_CENTER         = 1
 	DT_VCENTER        = 4
 	DT_SINGLELINE     = 0x20
@@ -146,7 +151,7 @@ type wndClassEx struct {
 
 type rect struct{ l, t, r, b int32 }
 
-func u16(s string) *uint16 { p, _ := windows.UTF16PtrFromString(s); return p }
+func u16(s string) *uint16          { p, _ := windows.UTF16PtrFromString(s); return p }
 func colorRef(r, g, b byte) uintptr { return uintptr(r) | uintptr(g)<<8 | uintptr(b)<<16 }
 
 func comCallN(unk uintptr, idx int, args ...uintptr) uintptr {
@@ -247,7 +252,7 @@ func createShortcut(target, workDir, desc, lnkPath string) error {
 	if hr != 0 || sl == 0 {
 		return fmt.Errorf("CoCreateInstance ShellLink failed (%x)", hr)
 	}
-	defer comCallN(sl, 2) // Release
+	defer comCallN(sl, 2)                                  // Release
 	comCallN(sl, 20, uintptr(unsafe.Pointer(u16(target)))) // SetPath
 	comCallN(sl, 9, uintptr(unsafe.Pointer(u16(workDir)))) // SetWorkingDirectory
 	comCallN(sl, 7, uintptr(unsafe.Pointer(u16(desc))))    // SetDescription
@@ -270,7 +275,42 @@ func knownFolder(csidl int) string {
 	return ""
 }
 
-func installDir() string { return filepath.Join(os.Getenv("LOCALAPPDATA"), "SWRemote") }
+func installDir() string {
+	if chosenDir != "" {
+		return chosenDir
+	}
+	return filepath.Join(os.Getenv("LOCALAPPDATA"), "SWRemote")
+}
+
+// pickFolder shows the standard Windows folder picker and returns the
+// chosen path, or "" if the user cancels.
+func pickFolder(owner uintptr) string {
+	type browseInfo struct {
+		owner, root, displayName, title uintptr
+		flags                           uint32
+		callback, lParam, image         uintptr
+	}
+	// BIF_RETURNONLYFSDIRS=0x1 | BIF_NEWDIALOGSTYLE=0x40
+	title, _ := windows.UTF16PtrFromString("Choose where to install SWRemote")
+	bi := browseInfo{owner: owner, title: uintptr(unsafe.Pointer(title)), flags: 0x41}
+	pidl, _, _ := pSHBrowseForFolderW.Call(uintptr(unsafe.Pointer(&bi)))
+	if pidl == 0 {
+		return ""
+	}
+	defer pCoTaskMemFree.Call(pidl)
+	var buf [260]uint16
+	if r, _, _ := pSHGetPathFromIDListW.Call(pidl, uintptr(unsafe.Pointer(&buf[0]))); r == 0 {
+		return ""
+	}
+	return windows.UTF16ToString(buf[:])
+}
+
+func onBrowse() {
+	if dir := pickFolder(gHWND); dir != "" {
+		chosenDir = dir
+		setText(cWelLoc, "Install location:  "+dir)
+	}
+}
 
 func setRunKey(target string) error {
 	k, _, err := registry.CreateKey(registry.CURRENT_USER,
@@ -333,9 +373,9 @@ func runElevated(exe string, args ...string) error {
 	app, _ := windows.UTF16PtrFromString(exe)
 	params, _ := windows.UTF16PtrFromString(strings.Join(args, " "))
 	type seiT struct {
-		cbSize, fMask, hwnd, verb, file, params, dir uintptr
-		show                                                   int32
-		instApp, idList, class, hkey, hotKey, icon, process    uintptr
+		cbSize, fMask, hwnd, verb, file, params, dir        uintptr
+		show                                                int32
+		instApp, idList, class, hkey, hotKey, icon, process uintptr
 	}
 	var sei seiT
 	sei.cbSize = uintptr(unsafe.Sizeof(sei))
@@ -372,7 +412,10 @@ func installService(dir string) string {
 				return "needs one admin approval — press 'Install wake-up' in the agent later"
 			}
 			runElevated("sc", "start", "SWRemoteService")
-			return ""
+			// v8.9.6: the elevated commands run async — claiming success
+			// here used to hide a declined UAC prompt, and the agent later
+			// reported "service needs admin" with no explanation.
+			return "needs one admin approval to finish — if you declined it, press 'Install wake-up' in the agent later"
 		}
 		return "service install failed"
 	}
@@ -417,20 +460,22 @@ func delUninstallKey() {
 // ---------------------------------------------------------------------------
 
 var (
-	gHWND uintptr
+	gHWND                                                                         uintptr
 	fHeadTitle, fHeadSub, fTitle, fBody, fBig, fSmall, fLabel, fOpt, fBtn, fCheck uintptr
-	brBlue, brWhite, brFooter, brCard, brGreen uintptr
+	brBlue, brWhite, brFooter, brCard, brGreen                                    uintptr
 
 	cWelTitle, cWelBody, cWelLoc, cWelOptLabel uintptr
-	cChkDesk, cChkMenu, cChkStart               uintptr
-	cDescDesk, cDescMenu, cDescStart             uintptr
-	cProTitle, cProBar, cProText                uintptr
+	cChkDesk, cChkMenu, cChkStart, cChkSvc     uintptr
+	cDescDesk, cDescMenu, cDescStart, cDescSvc uintptr
+	cBtnBrowse                                 uintptr
+	cProTitle, cProBar, cProText               uintptr
 	cStepLbl                                   [5]uintptr
-	cFinTitle, cFinBody                         uintptr
-	cBtnPrimary, cBtnClose                      uintptr
+	cFinTitle, cFinBody                        uintptr
+	cBtnPrimary, cBtnClose                     uintptr
 
 	uninstallMode bool
 	installing    bool
+	chosenDir     string // set by Browse; empty = default install folder
 	finished      string // "", "launch", "close"
 	finalTarget   string
 
@@ -450,6 +495,7 @@ var (
 const (
 	idPrimary = 1001
 	idClose   = 1002
+	idBrowse  = 1003
 )
 
 const winW, winH = 540, 660
@@ -457,10 +503,11 @@ const headerH = 124
 const footerY = 560
 
 // option cards: (x, y, w, h) — checkbox + description live on each card
-var cardRects = [3]rect{
-	{28, 306, 512, 382},
-	{28, 394, 512, 470},
-	{28, 482, 512, 558},
+var cardRects = [4]rect{
+	{28, 300, 512, 364},
+	{28, 372, 512, 436},
+	{28, 444, 512, 508},
+	{28, 516, 512, 580},
 }
 
 func showPage(page string) {
@@ -470,11 +517,12 @@ func showPage(page string) {
 	showCtl(cWelTitle, wel)
 	showCtl(cWelBody, wel)
 	showCtl(cWelLoc, wel && !uninstallMode)
+	showCtl(cBtnBrowse, wel && !uninstallMode)
 	showCtl(cWelOptLabel, wel && !uninstallMode)
-	for _, h := range []uintptr{cChkDesk, cChkMenu, cChkStart} {
+	for _, h := range []uintptr{cChkDesk, cChkMenu, cChkStart, cChkSvc} {
 		showCtl(h, wel && !uninstallMode)
 	}
-	for _, h := range []uintptr{cDescDesk, cDescMenu, cDescStart} {
+	for _, h := range []uintptr{cDescDesk, cDescMenu, cDescStart, cDescSvc} {
 		showCtl(h, wel && !uninstallMode)
 	}
 	showCtl(cProTitle, pro)
@@ -485,7 +533,15 @@ func showPage(page string) {
 	}
 	showCtl(cFinTitle, fin)
 	showCtl(cFinBody, fin)
-	showCtl(cBtnPrimary, page != "progress")
+	// v8.9.6: the primary button stays visible while installing, painted
+	// grey and disabled — before it vanished on the progress page, which
+	// read as "the button greyed out / died".
+	showCtl(cBtnPrimary, true)
+	en := uintptr(0)
+	if page != "progress" {
+		en = 1
+	}
+	pEnableWindow.Call(cBtnPrimary, en)
 	// repaint cards / finish badge
 	pInvalidateRect.Call(gHWND, 0, 1)
 }
@@ -594,7 +650,9 @@ func doInstall() {
 	stepDone(2)
 
 	reportProgress(76, "Installing background service…")
-	if w := installService(dir); w != "" {
+	if !isChecked(cChkSvc) {
+		warnings = append(warnings, "wake-up service: not installed — option was off (dashboard wake will not work until you reinstall with it on)")
+	} else if w := installService(dir); w != "" {
 		warnings = append(warnings, "wake-up service: "+w)
 	}
 	stepDone(3)
@@ -738,14 +796,17 @@ func wndProc(hwnd, msg, wp, lp uintptr) (ret uintptr) {
 		type drawItem struct {
 			ctlType, ctlID, itemID, itemAction, itemState uint32
 			hwndItem, hDC                                 uintptr
-			rc                                          rect
-			itemData                                    uintptr
+			rc                                            rect
+			itemData                                      uintptr
 		}
 		di := (*drawItem)(unsafe.Pointer(lp))
 		if di.ctlID == idPrimary {
 			pressed := di.itemState&ODS_SELECTED != 0
+			disabled := di.itemState&ODS_DISABLED != 0
 			bg := colorRef(0x2F, 0x7D, 0xE1)
-			if pressed {
+			if disabled {
+				bg = colorRef(0x9A, 0xA5, 0xB1)
+			} else if pressed {
 				bg = colorRef(0x1E, 0x5B, 0xB8)
 			}
 			br, _, _ := pCreateSolidBrush.Call(bg)
@@ -798,6 +859,8 @@ func wndProc(hwnd, msg, wp, lp uintptr) (ret uintptr) {
 		switch wp & 0xFFFF {
 		case idClose:
 			pDestroyWindow.Call(hwnd)
+		case idBrowse:
+			onBrowse()
 		case idPrimary:
 			onPrimary()
 		}
@@ -811,6 +874,9 @@ func wndProc(hwnd, msg, wp, lp uintptr) (ret uintptr) {
 }
 
 func onPrimary() {
+	if installing {
+		return
+	}
 	switch finished {
 	case "launch":
 		startDetached(finalTarget)
@@ -886,6 +952,25 @@ func paintChrome(hwnd uintptr) {
 	mr.l, mr.t, mr.r, mr.b = 28, 34, 92, 94
 	pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16("S"))), 0xFFFFFFFF,
 		uintptr(unsafe.Pointer(&mr)), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+
+	// v8.9.6: logo mark — white rounded square with SW, in the space the
+	// header text already leaves on the left (title starts at x=110).
+	{
+		markBr, _, _ := pCreateSolidBrush.Call(colorRef(255, 255, 255))
+		markPen, _, _ := pCreatePen.Call(0, 1, colorRef(255, 255, 255))
+		pSelectObject.Call(hdc, markBr)
+		pSelectObject.Call(hdc, markPen)
+		pRoundRect.Call(hdc, 28, 30, 92, 94, 16, 16)
+		pDeleteObject.Call(markBr)
+		pDeleteObject.Call(markPen)
+		pSetBkMode.Call(hdc, TRANSPARENT)
+		pSetTextColor.Call(hdc, colorRef(0x1E, 0x5B, 0xB8))
+		mf, _, _ := pSelectObject.Call(hdc, fHeadTitle)
+		var mr rect
+		mr.l, mr.t, mr.r, mr.b = 28, 30, 92, 94
+		pDrawTextW.Call(hdc, uintptr(unsafe.Pointer(u16("SW"))), 0xFFFFFFFF, uintptr(unsafe.Pointer(&mr)), DT_CENTER|DT_VCENTER|DT_SINGLELINE)
+		pSelectObject.Call(hdc, mf)
+	}
 
 	// header texts
 	pSelectObject.Call(hdc, fHeadTitle)
@@ -1055,9 +1140,10 @@ func buildControls(hwnd uintptr) {
 	cWelTitle = ctl(hwnd, "STATIC", "Welcome!", SS_LEFT, 36, 142, 468, 32, 201)
 	pSendMessageW.Call(cWelTitle, 48, fBig, 1)
 	cWelBody = ctl(hwnd, "STATIC", "", SS_LEFT, 36, 178, 468, 62, 202)
-	cWelLoc = ctl(hwnd, "STATIC", "", SS_LEFT, 36, 246, 468, 20, 214)
+	cWelLoc = ctl(hwnd, "STATIC", "", SS_LEFT, 36, 246, 360, 20, 214)
 	pSendMessageW.Call(cWelLoc, 48, fSmall, 1)
-	cWelOptLabel = ctl(hwnd, "STATIC", "OPTIONS", SS_LEFT, 36, 280, 468, 20, 215)
+	cBtnBrowse = ctl(hwnd, "BUTTON", "Browse…", BS_PUSHBUTTON|WS_TABSTOP, 404, 242, 108, 26, idBrowse)
+	cWelOptLabel = ctl(hwnd, "STATIC", "OPTIONS", SS_LEFT, 36, 274, 468, 20, 215)
 	pSendMessageW.Call(cWelOptLabel, 48, fLabel, 1)
 	chkDefs := []struct {
 		id      uintptr
@@ -1068,16 +1154,17 @@ func buildControls(hwnd uintptr) {
 		chkVar  *uintptr
 		descVar *uintptr
 	}{
-		{203, "Desktop shortcut", "Open SWRemote right from your desktop", 211, 306, &cChkDesk, &cDescDesk},
-		{204, "Start Menu shortcut", "Find SWRemote in the Start Menu", 212, 394, &cChkMenu, &cDescMenu},
-		{205, "Start SWRemote with Windows", "Always ready when this PC boots", 213, 482, &cChkStart, &cDescStart},
+		{203, "Desktop shortcut", "Open SWRemote right from your desktop", 211, 300, &cChkDesk, &cDescDesk},
+		{204, "Start Menu shortcut", "Find SWRemote in the Start Menu", 212, 372, &cChkMenu, &cDescMenu},
+		{205, "Start SWRemote with Windows", "Always ready when this PC boots", 213, 444, &cChkStart, &cDescStart},
+		{206, "Wake-up service", "Lets your dashboard wake this PC when asleep (needs admin)", 214, 516, &cChkSvc, &cDescSvc},
 	}
 	for _, d := range chkDefs {
-		chk := ctl(hwnd, "BUTTON", d.label, BS_AUTOCHECKBOX|WS_TABSTOP, 46, d.cardY+12, 440, 22, d.id)
+		chk := ctl(hwnd, "BUTTON", d.label, BS_AUTOCHECKBOX|WS_TABSTOP, 46, d.cardY+10, 440, 22, d.id)
 		pSendMessageW.Call(chk, 48, fOpt, 1)
 		pSendMessageW.Call(chk, BM_SETCHECK, BST_CHECKED, 0)
 		*d.chkVar = chk
-		desc := ctl(hwnd, "STATIC", d.desc, SS_LEFT, 70, d.cardY+38, 420, 20, d.descID)
+		desc := ctl(hwnd, "STATIC", d.desc, SS_LEFT, 70, d.cardY+34, 420, 20, d.descID)
 		pSendMessageW.Call(desc, 48, fSmall, 1)
 		*d.descVar = desc
 	}

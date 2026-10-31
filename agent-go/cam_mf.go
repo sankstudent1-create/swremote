@@ -394,6 +394,8 @@ func mfCaptureLoop(stop <-chan struct{}) error {
 
 	tick := time.NewTicker(200 * time.Millisecond) // ~5fps
 	defer tick.Stop()
+	grabFails := 0
+	camSent := false
 	for {
 		select {
 		case <-stop:
@@ -403,7 +405,22 @@ func mfCaptureLoop(stop <-chan struct{}) error {
 				continue
 			}
 			if j := mfGrabFrame(reader, subtype, w, h, stride); len(j) > 0 {
+				if grabFails > 0 {
+					log("PC camera (MediaFoundation): recovered after %d empty grabs", grabFails)
+					grabFails = 0
+				}
+				if !camSent {
+					camSent = true
+					log("PC camera (MediaFoundation): first frame sent %dx%d", w, h)
+				}
 				sendBinary(0x06, j)
+			} else {
+				// v8.9.6: empty grabs used to be silent — the console
+				// kept showing the demo with no clue in the log.
+				grabFails++
+				if grabFails == 1 || grabFails%100 == 0 {
+					log("PC camera (MediaFoundation): empty grab (x%d)", grabFails)
+				}
 			}
 		}
 	}

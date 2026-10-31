@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/gorilla/websocket"
 	"golang.org/x/sys/windows/svc"
@@ -50,7 +51,27 @@ func configDir() string {
 	return filepath.Dir(exe)
 }
 
+func readIDFile(p string) string {
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return ""
+	}
+	var c struct {
+		DeviceID string `json:"device_id"`
+	}
+	if json.Unmarshal(b, &c) == nil && c.DeviceID != "" {
+		return c.DeviceID
+	}
+	return ""
+}
+
 func loadDeviceID() string {
+	// v8.9.6: prefer the agent's canonical config in
+	// %LOCALAPPDATA%\SWRemote so agent + service share one ID even when
+	// the install folder is customised in Setup.
+	if id := readIDFile(filepath.Join(os.Getenv("LOCALAPPDATA"), "SWRemote", "swremote.json")); id != "" {
+		return id
+	}
 	// share swremote.json with the agent (same install dir)
 	p := filepath.Join(configDir(), "swremote.json")
 	b, err := os.ReadFile(p)
@@ -96,9 +117,89 @@ func launchAgent() error {
 			return fmt.Errorf("agent exe not found")
 		}
 	}
-	cmd := exec.Command(exe)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	return cmd.Start()
+	// v8.9.6: a service runs in session 0, which has no interactive
+	// desktop — a plain exec used to start the agent there, invisible,
+	// unable to capture the screen. Launch it in the active console
+	// session instead, so the window appears on the user's desktop.
+	if err := launchAgentInSession(exe); err != nil {
+		logf("wake: session launch failed (%v) — falling back to plain start", err)
+		cmd := exec.Command(exe)
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		return cmd.Start()
+	}
+	return nil
+}
+
+// ---- launch into the interactive user session (WTS) ----
+// Stdlib syscall only, so no new module dependency.
+
+var (
+	wts32dll                      = syscall.NewLazyDLL("wtsapi32.dll")
+	advapi32dll                   = syscall.NewLazyDLL("advapi32.dll")
+	userenvdll                    = syscall.NewLazyDLL("userenv.dll")
+	kernel32dll                   = syscall.NewLazyDLL("kernel32.dll")
+	pWTSGetActiveConsoleSessionId = kernel32dll.NewProc("WTSGetActiveConsoleSessionId")
+	pWTSQueryUserToken            = wts32dll.NewProc("WTSQueryUserToken")
+	pDuplicateTokenEx             = advapi32dll.NewProc("DuplicateTokenEx")
+	pCreateEnvironmentBlock       = userenvdll.NewProc("CreateEnvironmentBlock")
+	pDestroyEnvironmentBlock      = userenvdll.NewProc("DestroyEnvironmentBlock")
+	pCreateProcessAsUserW         = advapi32dll.NewProc("CreateProcessAsUserW")
+	pCloseHandleProc              = kernel32dll.NewProc("CloseHandle")
+)
+
+type wtsStartupInfo struct {
+	cb                                                            uint32
+	reserved                                                      *uint16
+	desktop                                                       *uint16
+	title                                                         *uint16
+	x, y, xSize, ySize, xCountChars, yCountChars, fillAttr, flags uint32
+	showWindow                                                    uint16
+	cbReserved2                                                   uint16
+	reserved2                                                     *byte
+	stdInput, stdOutput, stdError                                 uintptr
+}
+
+type wtsProcessInfo struct {
+	process, thread     uintptr
+	processID, threadID uint32
+}
+
+func launchAgentInSession(exe string) error {
+	sid, _, _ := pWTSGetActiveConsoleSessionId.Call()
+	if sid == 0xFFFFFFFF {
+		return fmt.Errorf("no active console session")
+	}
+	var hToken uintptr
+	r, _, _ := pWTSQueryUserToken.Call(sid, uintptr(unsafe.Pointer(&hToken)))
+	if r == 0 || hToken == 0 {
+		return fmt.Errorf("WTSQueryUserToken failed")
+	}
+	defer pCloseHandleProc.Call(hToken)
+	var hPrimary uintptr
+	// DuplicateTokenEx(hToken, MAXIMUM_ALLOWED, nil, SecurityImpersonation=2, TokenPrimary=1, &hPrimary)
+	r, _, _ = pDuplicateTokenEx.Call(hToken, 0x2000000, 0, 2, 1, uintptr(unsafe.Pointer(&hPrimary)))
+	if r == 0 || hPrimary == 0 {
+		return fmt.Errorf("DuplicateTokenEx failed")
+	}
+	defer pCloseHandleProc.Call(hPrimary)
+	var env uintptr
+	if r, _, _ := pCreateEnvironmentBlock.Call(uintptr(unsafe.Pointer(&env)), hPrimary, 0); r == 0 {
+		return fmt.Errorf("CreateEnvironmentBlock failed")
+	}
+	defer pDestroyEnvironmentBlock.Call(env)
+	desktop, _ := syscall.UTF16PtrFromString(`winsta0\default`)
+	si := wtsStartupInfo{desktop: desktop}
+	si.cb = uint32(unsafe.Sizeof(si))
+	cmdline, _ := syscall.UTF16PtrFromString(`"` + exe + `"`)
+	var pi wtsProcessInfo
+	// CreateProcessAsUserW(hPrimary, nil, cmdline, nil, nil, false, CREATE_UNICODE_ENVIRONMENT=0x400, env, nil, &si, &pi)
+	r, _, errno := pCreateProcessAsUserW.Call(hPrimary, 0, uintptr(unsafe.Pointer(cmdline)), 0, 0, 0, 0x400, env, 0, uintptr(unsafe.Pointer(&si)), uintptr(unsafe.Pointer(&pi)))
+	if r == 0 {
+		return fmt.Errorf("CreateProcessAsUser failed (%v)", errno)
+	}
+	pCloseHandleProc.Call(pi.process)
+	pCloseHandleProc.Call(pi.thread)
+	return nil
 }
 
 func runLoop() {

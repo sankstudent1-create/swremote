@@ -1159,7 +1159,10 @@ function startCallMedia() {
   cv.width = 320; cv.height = 240;
   const cx = cv.getContext("2d");
   callFrameTimer = setInterval(() => {
-    if (callState !== "incall" || !callCamOn || !ws || ws.readyState !== 1) return;
+    // v10.6: send from "calling" too — the agent accepts on call-start,
+    // so waiting for "incall" left the PC video window on "call started"
+    // whenever the accept message raced the first frames.
+    if ((callState !== "incall" && callState !== "calling") || !callCamOn || !ws || ws.readyState !== 1) return;
     try {
       cx.drawImage(vid, 0, 0, 320, 240);
       cv.toBlob((b) => {

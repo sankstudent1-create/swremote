@@ -446,6 +446,8 @@ func camCaptureLoopDS(stop <-chan struct{}) {
 
 	tick := time.NewTicker(200 * time.Millisecond) // ~5fps
 	defer tick.Stop()
+	grabFails := 0
+	camSent := false
 	for {
 		select {
 		case <-stop:
@@ -456,6 +458,10 @@ func camCaptureLoopDS(stop <-chan struct{}) {
 			}
 			var size int32
 			if hr := comCallN(grabber, 7, uintptr(unsafe.Pointer(&size)), 0); hr != 0 || size == 0 {
+				grabFails++
+				if grabFails == 1 || grabFails%100 == 0 {
+					log("PC camera (DirectShow): grab failed hr=%x size=%d (x%d)", hr, size, grabFails)
+				}
 				continue
 			}
 			buf := make([]byte, size)
@@ -464,7 +470,20 @@ func camCaptureLoopDS(stop <-chan struct{}) {
 				continue
 			}
 			if j := rgb24ToJPEG(buf, w, h); len(j) > 0 {
+				if grabFails > 0 {
+					log("PC camera (DirectShow): recovered after %d grab failures", grabFails)
+					grabFails = 0
+				}
+				if !camSent {
+					camSent = true
+					log("PC camera (DirectShow): first frame sent %dx%d", w, h)
+				}
 				sendBinary(0x06, j)
+			} else {
+				grabFails++
+				if grabFails == 1 || grabFails%100 == 0 {
+					log("PC camera (DirectShow): empty JPEG (x%d)", grabFails)
+				}
 			}
 		}
 	}

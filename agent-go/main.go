@@ -601,6 +601,8 @@ func runSession(cfg *Config) error {
 		var winCount int
 		lastKeyframe := time.Now().Add(-time.Hour) // force keyframe first
 		needKeyframe.Store(true)
+		capFails := 0
+		keyLogged := false
 		for {
 			select {
 			case <-stop:
@@ -610,12 +612,24 @@ func runSession(cfg *Config) error {
 			start := time.Now()
 			img, err := captureScreen()
 			if err != nil || img == nil {
+				capFails++
+				// v8.9.6: capture failures used to be silent — the viewer
+				// saw a blank screen with working keys and nothing in the
+				// log explained it. Log (throttled) so the next report is
+				// diagnosable instead of a mystery.
+				if capFails == 1 || capFails%50 == 0 {
+					log("screen capture error: %v (x%d)", err, capFails)
+				}
 				select {
 				case <-stop:
 					return
 				case <-time.After(interval):
 				}
 				continue
+			}
+			if capFails > 0 {
+				log("screen capture recovered after %d failures", capFails)
+				capFails = 0
 			}
 			w, h := img.Bounds().Dx(), img.Bounds().Dy()
 			if prev != nil && (prev.Bounds().Dx() != w || prev.Bounds().Dy() != h) {
@@ -633,6 +647,10 @@ func runSession(cfg *Config) error {
 					return
 				}
 				lastKeyframe = time.Now()
+				if !keyLogged {
+					keyLogged = true
+					log("screen sender: first keyframe %dx%d q%d", w, h, q)
+				}
 			} else {
 				var changed []int
 				for idx := 0; idx < nTiles; idx++ {
