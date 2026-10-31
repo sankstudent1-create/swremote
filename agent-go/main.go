@@ -812,6 +812,19 @@ func runSession(cfg *Config) error {
 				text = text[:200]
 			}
 			notify("SWRemote message", text)
+		case "apps-list":
+			sendWSJSON(map[string]any{"t": "apps", "apps": listApps()})
+		case "app-launch":
+			p, _ := msg["path"].(string)
+			err := launchApp(p)
+			sendWSJSON(map[string]any{"t": "app-launch-result", "path": p, "ok": err == nil, "error": appErr(err)})
+		case "app-kill":
+			pid := int32(0)
+			if f, ok := msg["pid"].(float64); ok {
+				pid = int32(f)
+			}
+			err := killApp(pid)
+			sendWSJSON(map[string]any{"t": "app-kill-result", "pid": pid, "ok": err == nil, "error": appErr(err)})
 		case "file_meta":
 			handleFileMeta(msg)
 		case "lock":

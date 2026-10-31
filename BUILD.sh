@@ -6,7 +6,7 @@ export PATH="$HOME/sdk/go/bin:$HOME/go/bin:$PATH"
 VER=$(node -p "require('./version.json').version")
 # v8.9.6: stamp the Windows version resource from version.json every build
 # (it used to sit stale at 8.2.2, so Properties showed the wrong version).
-node -e 'const fs=require("fs");const v=require("./version.json").version;for(const f of ["agent-go/winres/winres.json","installer/winres/winres.json"]){const j=JSON.parse(fs.readFileSync(f));for(const lang of Object.keys(j.RT_VERSION["#1"])){j.RT_VERSION["#1"][lang].fixed.file_version=v;j.RT_VERSION["#1"][lang].fixed.product_version=v;}fs.writeFileSync(f,JSON.stringify(j,null,2)+"\n");}'
+node -e 'const fs=require("fs");const v=require("./version.json").version;for(const f of ["agent-go/winres/winres.json","installer/winres/winres.json"]){const j=JSON.parse(fs.readFileSync(f));for(const lang of Object.keys(j.RT_VERSION["#1"])){const r=j.RT_VERSION["#1"][lang];r.fixed.file_version=v;r.fixed.product_version=v;if(r.info)for(const l of Object.keys(r.info)){r.info[l].FileVersion=v;r.info[l].ProductVersion=v;}}fs.writeFileSync(f,JSON.stringify(j,null,2)+"\n");}'
 echo "building v$VER ..."
 cd agent-go
 go-winres make --in winres/winres.json --out rsrc_windows_amd64.syso >/dev/null

@@ -754,6 +754,7 @@ function onWsMsg(ev) {
     wsAttempt = 0; sessionLive = true;
     setStatus(""); $("sess-dot").className = "dot on";
     if (m.screen) sizeCanvas(m.screen.w, m.screen.h);
+    if (m.apps) renderApps(m.apps); // cached list from the relay database
     ws.send(JSON.stringify({ t: "keyframe" })); // ask for a full frame now
     startLatLoop(); // v10.4: live latency pill (needs agent v8.9.4 pong)
     if (wasReconnect && frameW) toast("Reconnected ⚡");
@@ -764,6 +765,9 @@ function onWsMsg(ev) {
   else if (m.t === "agent_gone") { setStatus("Device went offline.", true); $("sess-dot").className = "dot off"; }
   else if (m.t === "agent_back") { setStatus(""); $("sess-dot").className = "dot on"; }
   else if (m.t === "chat") addChat(m.text, false);
+  else if (m.t === "apps") renderApps(m.apps || []);
+  else if (m.t === "app-launch-result") { toast(m.ok ? "Opened." : "Could not open: " + (m.error || "")); if (m.ok) requestApps(); }
+  else if (m.t === "app-kill-result") { toast(m.ok ? "Stopped." : "Could not stop: " + (m.error || "")); requestApps(); }
   else if (m.t === "cursor") moveRemoteCursor(m.x, m.y);
   else if (m.t === "pong" && m.ts) { // v10.4: live session latency
     const ms = Date.now() - m.ts, el = $("sess-lat");
@@ -1010,13 +1014,25 @@ function rel(e) {
 }
 function sendInput(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: "input", ...o })); }
 
-let touchState = null;
+let touchState = null, lastTap = null, longPressTimer = null;
 function bindCanvasInput() {
   canvas.onpointerdown = (e) => {
     if (gestureActive) return;
     canvas.setPointerCapture(e.pointerId);
     const p = rel(e);
-    if (e.pointerType === "touch") { touchState = { x: e.clientX, y: e.clientY, moved: false, t: Date.now(), two: false }; }
+    if (e.pointerType === "touch") {
+      touchState = { x: e.clientX, y: e.clientY, moved: false, t: Date.now(), downSent: false, longPressed: false };
+      // v10.8: long-press (500ms, no move) = right click
+      clearTimeout(longPressTimer);
+      longPressTimer = setTimeout(() => {
+        if (touchState && !touchState.moved && !touchState.downSent) {
+          touchState.longPressed = true;
+          sendInput({ k: "move", ...rel({ clientX: touchState.x, clientY: touchState.y }) });
+          sendInput({ k: "down", b: "right" });
+          sendInput({ k: "up", b: "right" });
+        }
+      }, 500);
+    }
     sendInput({ k: "move", ...p });
     const btn = e.button === 2 ? "right" : e.button === 1 ? "middle" : "left";
     if (e.pointerType !== "touch") sendInput({ k: "down", b: btn });
@@ -1024,7 +1040,12 @@ function bindCanvasInput() {
   };
   canvas.onpointermove = (e) => {
     if (gestureActive) return;
-    if (touchState && Math.hypot(e.clientX - touchState.x, e.clientY - touchState.y) > 12) touchState.moved = true;
+    if (touchState && !touchState.longPressed && Math.hypot(e.clientX - touchState.x, e.clientY - touchState.y) > 12) {
+      touchState.moved = true;
+      clearTimeout(longPressTimer);
+      // v10.8: moving with the finger down starts a real drag
+      if (!touchState.downSent) { sendInput({ k: "move", ...rel(e) }); sendInput({ k: "down", b: "left" }); touchState.downSent = true; }
+    }
     const now = performance.now();
     if (now - lastMove < 40) return;
     lastMove = now;
@@ -1032,13 +1053,30 @@ function bindCanvasInput() {
   };
   canvas.onpointerup = (e) => {
     if (gestureActive) return;
+    clearTimeout(longPressTimer);
     const p = rel(e);
     if (e.pointerType === "touch" && touchState) {
       const dt = Date.now() - touchState.t;
-      if (!touchState.moved && dt < 400) { // tap = left click
+      if (touchState.longPressed) {
+        // right click already sent — nothing more
+      } else if (touchState.downSent) {
         sendInput({ k: "move", ...p });
-        sendInput({ k: "down", b: "left" });
         sendInput({ k: "up", b: "left" });
+      } else if (!touchState.moved && dt < 400) {
+        // tap = click; a second tap within 300ms = double-click
+        const now = Date.now();
+        sendInput({ k: "move", ...p });
+        if (lastTap && now - lastTap.t < 300 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 24) {
+          sendInput({ k: "down", b: "left" });
+          sendInput({ k: "up", b: "left" });
+          sendInput({ k: "down", b: "left" });
+          sendInput({ k: "up", b: "left" });
+          lastTap = null;
+        } else {
+          sendInput({ k: "down", b: "left" });
+          sendInput({ k: "up", b: "left" });
+          lastTap = { t: now, x: e.clientX, y: e.clientY };
+        }
       }
       touchState = null;
     } else {
@@ -1047,7 +1085,11 @@ function bindCanvasInput() {
       sendInput({ k: "up", b: btn });
     }
   };
-  canvas.onpointercancel = () => { touchState = null; };
+  canvas.onpointercancel = () => {
+    clearTimeout(longPressTimer);
+    if (touchState && touchState.downSent) sendInput({ k: "up", b: "left" });
+    touchState = null;
+  };
   canvas.oncontextmenu = (e) => e.preventDefault();
   canvas.onwheel = (e) => { sendInput({ k: "scroll", dx: 0, dy: Math.sign(e.deltaY) * -3 }); e.preventDefault(); };
 }
@@ -1342,6 +1384,49 @@ function sendChat() {
   addChat(t, true);
   $("chat-text").value = "";
 }
+
+/* ---------- apps: list / launch / kill (v10.8) ---------- */
+let lastApps = null;
+function requestApps() {
+  const el = $("apps-list");
+  if (ws && ws.readyState === 1) {
+    if (!lastApps) el.innerHTML = "<p class=\"hint\">Loading apps…</p>";
+    ws.send(JSON.stringify({ t: "apps-list" }));
+  } else if (lastApps) renderApps(lastApps, true);
+  else el.innerHTML = "<p class=\"hint\">PC is offline — no cached apps list.</p>";
+}
+function renderApps(apps, cached) {
+  lastApps = apps;
+  const el = $("apps-list");
+  if (!apps || !apps.length) { el.innerHTML = "<p class=\"hint\">No apps found on this PC.</p>"; return; }
+  el.innerHTML = "";
+  const note = document.createElement("p");
+  note.className = "hint";
+  note.textContent = cached ? "Cached list — PC offline." : apps.length + " apps";
+  el.appendChild(note);
+  apps.forEach((a) => {
+    const row = document.createElement("div"); row.className = "app-row";
+    const left = document.createElement("div"); left.className = "app-info";
+    const nm = document.createElement("b"); nm.textContent = a.name; left.appendChild(nm);
+    const ph = document.createElement("div"); ph.className = "app-path"; ph.textContent = a.path; left.appendChild(ph);
+    const pill = document.createElement("span");
+    pill.className = "app-pill " + (a.running ? "on" : "");
+    pill.textContent = a.running ? "Running" : "Not running";
+    const btns = document.createElement("div"); btns.className = "app-btns";
+    const lb = document.createElement("button"); lb.className = "btn"; lb.textContent = "Launch";
+    lb.onclick = () => { ws.send(JSON.stringify({ t: "app-launch", path: a.path })); toast("Opening " + a.name + "…"); };
+    btns.appendChild(lb);
+    if (a.running && a.pids && a.pids.length) {
+      const kb = document.createElement("button"); kb.className = "btn"; kb.textContent = "Kill";
+      kb.onclick = () => { if (confirm("Stop " + a.name + "? Unsaved work in it will be lost.")) ws.send(JSON.stringify({ t: "app-kill", pid: a.pids[0] })); };
+      btns.appendChild(kb);
+    }
+    row.append(left, pill, btns);
+    el.appendChild(row);
+  });
+}
+$("btn-apps").onclick = () => { toggleDrawer("apps-panel"); requestApps(); };
+$("apps-refresh").onclick = requestApps;
 
 /* ---------- files: console -> agent ---------- */
 let pendingFile = null;

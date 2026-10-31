@@ -236,6 +236,7 @@
   <nav class="toolbar" id="session-toolbar">
     <button id="btn-kbd" title="Keyboard"><span class="mi t-ico">keyboard</span><span class="t-label">Keys</span></button>
     <button id="btn-chat" title="Chat"><span class="mi t-ico">chat_bubble</span><span class="t-label">Chat</span></button>
+    <button id="btn-apps" title="Apps"><span class="mi t-ico">apps</span><span class="t-label">Apps</span></button>
     <button id="btn-quality" title="Quality"><span class="mi t-ico">tune</span><span class="t-label">Quality</span></button>
     <button id="btn-call" title="Start meeting"><span class="mi t-ico">videocam</span><span class="t-label">Meet</span></button>
     <button id="btn-full" title="Fullscreen"><span class="mi t-ico">fullscreen</span><span class="t-label">Full</span></button>
@@ -268,6 +269,12 @@
       <div id="file-progress"></div>
       <p class="hint">Received files land in <b>Downloads\SWRemote</b> on the PC.</p>
     </div>
+  </aside>
+
+  <aside id="apps-panel" class="sheet hidden">
+    <div class="sheet-head"><div class="sheet-grip"></div><b>Apps on this PC</b><button id="apps-refresh" class="icon-btn" title="Refresh" aria-label="Refresh"><span class="mi">refresh</span></button><button class="icon-btn" data-close="apps-panel" aria-label="Close"><span class="mi">close</span></button></div>
+    <div id="apps-list" class="pad"></div>
+    <p class="hint pad">Launch opens the app on the PC. Kill stops a running app — unsaved work in it will be lost.</p>
   </aside>
 
   <div id="quality-pop" class="popover hidden">

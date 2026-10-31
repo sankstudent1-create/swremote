@@ -110,6 +110,8 @@ function devicePublic(id, d, live) {
     viewers: live ? live.viewers.size : 0,
     screen: live ? live.screen : null,
     lastSeen: live ? live.lastSeen : (d.lastSeen || null),
+    apps: d.apps || null,
+    appsUpdatedAt: d.appsUpdatedAt || null,
   };
 }
 
@@ -147,6 +149,8 @@ const httpServer = http.createServer((req, res) => {
             viewers: live ? live.viewers.size : 0,
             screen: live ? live.screen : null,
             lastSeen: live ? live.lastSeen : (row.last_seen || null),
+            apps: (store.devices[row.agent_id] && store.devices[row.agent_id].apps) || null,
+            appsUpdatedAt: (store.devices[row.agent_id] && store.devices[row.agent_id].appsUpdatedAt) || null,
             mine: true,
           };
         }));
@@ -377,6 +381,9 @@ wss.on("connection", (ws) => {
         lastSeen: rec.lastSeen,
         // claim code survives re-registers until claimed (Phase 1)
         claimCode: prevStored.claimCode || String(msg.claimCode || "").toUpperCase() || null,
+        // v8.9.8: cached apps list survives re-registers too
+        apps: prevStored.apps || null,
+        appsUpdatedAt: prevStored.appsUpdatedAt || null,
       };
       saveStore();
       // re-attach existing viewers to the new socket
@@ -405,10 +412,10 @@ wss.on("connection", (ws) => {
         const rec = agents.get(id);
         if (rec && rec.ws.readyState === 1) {
           rec.viewers.add(ws);
-          send(ws, { t: "joined", id, name: d.name, screen: rec.screen, online: true, vid });
+          send(ws, { t: "joined", id, name: d.name, screen: rec.screen, online: true, vid, apps: d.apps || null, appsUpdatedAt: d.appsUpdatedAt || null });
           sendViewers(rec);
         } else {
-          send(ws, { t: "joined", id, name: d.name, screen: null, online: false, vid });
+          send(ws, { t: "joined", id, name: d.name, screen: null, online: false, vid, apps: d.apps || null, appsUpdatedAt: d.appsUpdatedAt || null });
         }
       };
       if (msg.token && sbOn) {
@@ -447,6 +454,14 @@ wss.on("connection", (ws) => {
     }
     if (role === "agent" && deviceId) {
       const rec = agents.get(deviceId);
+      // v8.9.8: persist the apps list in the device database (devices.json)
+      if (msg.t === "apps") {
+        const s = store.devices[deviceId] || {};
+        s.apps = Array.isArray(msg.apps) ? msg.apps : [];
+        s.appsUpdatedAt = Date.now();
+        store.devices[deviceId] = s;
+        saveStore();
+      }
       if (rec) for (const v of rec.viewers) if (v.readyState === 1) v.send(JSON.stringify(msg));
       return;
     }

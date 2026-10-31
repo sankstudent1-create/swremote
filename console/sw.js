@@ -1,5 +1,5 @@
 /* SWRemote console service worker — offline shell cache + offline fallback */
-const CACHE = "swremote-v19";
+const CACHE = "swremote-v20";
 const ASSETS = [
   "./", "./index.html", "./offline.html", "./app.js", "./pocket.css",
   "./manifest.json", "./logo.png", "./login-bg.jpg",
