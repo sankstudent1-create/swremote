@@ -122,6 +122,7 @@ func onCallStart(msg map[string]any) {
 	callPeerCam, callPeerMic = true, true
 	playMuted = false
 	viewerFrames, viewerFrameLogged = 0, false
+	viewerPCM, viewerPCMLogged = 0, false
 	// PC camera+mic are ON by default when a call connects
 	pcCamOn, pcMicOn = true, true
 	callMu.Unlock()
@@ -244,6 +245,8 @@ func onOff(b bool) string {
 // started" report can be told apart from "frames never arrived".
 var viewerFrames int
 var viewerFrameLogged bool
+var viewerPCM int
+var viewerPCMLogged bool
 
 func handleViewerFrame(jpeg []byte) {
 	callMu.Lock()
@@ -278,6 +281,15 @@ func handleViewerPCM(pcm []byte) {
 	callMu.Unlock()
 	if !active || !peerMic || muted || len(pcm) < 2 {
 		return
+	}
+	// v8.9.7: mirror the video frame logging, so a "their sound never
+	// came" report shows whether packets arrived at all.
+	viewerPCM++
+	if !viewerPCMLogged {
+		viewerPCMLogged = true
+		log("viewer mic: first packet received")
+	} else if viewerPCM%1200 == 0 {
+		log("viewer mic: %d packets received", viewerPCM)
 	}
 	playPCM(pcm)
 }

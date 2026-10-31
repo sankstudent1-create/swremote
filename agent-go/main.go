@@ -374,6 +374,32 @@ func captureScreen() (*image.RGBA, error) {
 	return screenshot.CaptureRect(bounds)
 }
 
+// logStartupIdentity records elevation + session so the next "works as
+// admin but not otherwise" report can be told apart from a session-0
+// launch — v8.9.7. Failures are logged, never fatal.
+func logStartupIdentity() {
+	var sid uint32
+	if err := windows.ProcessIdToSessionId(uint32(os.Getpid()), &sid); err != nil {
+		log("startup: session lookup failed (%v)", err)
+		return
+	}
+	var tok windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &tok); err != nil {
+		log("startup: session %d, elevation lookup failed (%v)", sid, err)
+		return
+	}
+	defer tok.Close()
+	// local struct: this x/sys/windows only exports TokenElevation as the
+	// information-class constant, not as a struct type.
+	var elev struct{ TokenIsElevated uint32 }
+	var n uint32
+	if err := windows.GetTokenInformation(tok, windows.TokenElevation, (*byte)(unsafe.Pointer(&elev)), uint32(unsafe.Sizeof(elev)), &n); err != nil {
+		log("startup: session %d, elevation read failed (%v)", sid, err)
+		return
+	}
+	log("startup: session %d, elevated=%v", sid, elev.TokenIsElevated != 0)
+}
+
 // cursorPos returns the current mouse position in screen pixels.
 func cursorPos() (int, int, bool) {
 	var pt [2]int32
@@ -519,6 +545,7 @@ func main() {
 	go ensureWatchdogTask() // v8.9.0: scheduled task reopens us if killed
 	cfg = loadConfig()
 	log("ID %s, server %s", cfg.DeviceID, cfg.Server)
+	logStartupIdentity()
 	go runPrereqCheck() // v8.4.0: verify camera/mic components, log what's missing
 
 	// auto-start with Windows by default from now on; the in-window checkbox opts out

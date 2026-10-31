@@ -1139,6 +1139,7 @@ async function meetingStart() {
   } catch (e) { toast("Camera/mic blocked — allow access to join the meeting."); return; }
   $("meeting-local-video").srcObject = callStream;
   callState = "calling";
+  pcVideoLive = false;
   meetingEnter();
   toast("Ringing the PC…");
   callSend({ t: "call-start", name: myProfile.display_name || "Guest" });
@@ -1202,6 +1203,7 @@ function startCallMedia() {
 }
 function meetingStop() {
   callState = "idle";
+  pcVideoLive = false;
   clearTimeout(callRingTimer);
   clearInterval(callFrameTimer); callFrameTimer = null;
   if (callAudioNode) { try { callAudioNode.disconnect(); } catch {} callAudioNode = null; }
@@ -1259,10 +1261,11 @@ function updatePCMeetingUI() {
   const off = $("meeting-pc-off"), img = $("meeting-pc-video"), demo = $("meeting-pc-demo");
   if (!off || !img) return;
   if (pcCamOn) {
-    // silent demo fallback: show the demo picture until real frames arrive
-    if (demo) demo.classList.remove("hidden");
+    // v10.7: the demo is only a placeholder until real frames arrive —
+    // it used to be re-shown on every av-state, covering live video.
+    if (demo) demo.classList.toggle("hidden", pcVideoLive);
     off.style.display = "none";
-    $("meeting-pc-msg").textContent = "PC camera…";
+    $("meeting-pc-msg").textContent = pcVideoLive ? "PC camera" : "PC camera…";
   } else {
     img.classList.add("hidden");
     if (demo) demo.classList.remove("hidden");
@@ -1275,6 +1278,7 @@ function updatePCMeetingUI() {
 }
 // PC camera JPEG frame -> corner PiP (hides the demo silently)
 let pcVideoURL = null;
+let pcVideoLive = false; // v10.7: true once a real PC camera frame has arrived this call
 function showPCVideo(jpeg) {
   const v = $("meeting-pc-video");
   if (!v) return;
@@ -1285,6 +1289,7 @@ function showPCVideo(jpeg) {
     v.classList.remove("hidden");
     const demo = $("meeting-pc-demo");
     if (demo) demo.classList.add("hidden");
+    pcVideoLive = true;
     $("meeting-pc-off").style.display = "none";
   } catch {}
 }
