@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SWRemote</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",system-ui,sans-serif;background:#f7fafe;color:#1d2538}
+  .wrap{max-width:860px;margin:0 auto;padding:22px 24px 18px}
+  header{display:flex;align-items:center;gap:14px;margin-bottom:18px}
+  .logo{width:52px;height:52px;border-radius:14px;background:#7c3aed;color:#fff;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;flex:none}
+  h1{font-size:24px;margin:0}
+  .sub{color:#64748b;font-size:13px;margin-top:2px}
+  .pill{margin-left:auto;padding:6px 14px;border-radius:999px;background:#eef2ff;color:#7c3aed;font-weight:700;font-size:13px;white-space:nowrap}
+  .pill.ok{background:#e6f6ee;color:#22a35f}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .card{background:#fff;border:1px solid #e7edf5;border-radius:14px;padding:16px 18px}
+  .card.wide{grid-column:1/-1}
+  .lbl{font-size:11px;letter-spacing:.08em;color:#64748b;font-weight:700;margin-bottom:6px}
+  .big{font-family:Consolas,monospace;font-size:34px;font-weight:700;line-height:1.1;word-break:break-all}
+  .pin{font-size:24px}
+  .row{display:flex;gap:8px;align-items:center}
+  button{border:0;border-radius:9px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;background:#eef2ff;color:#7c3aed}
+  button.primary{background:#7c3aed;color:#fff}
+  button.danger{background:#fdecec;color:#c2410c}
+  button:disabled{opacity:.5;cursor:default}
+  .mono{font-family:Consolas,monospace;font-size:13px;word-break:break-all;flex:1;background:#f7fafe;border:1px solid #e7edf5;border-radius:8px;padding:8px 10px}
+  .status{display:flex;align-items:center;gap:8px;font-size:14px}
+  .dot{width:10px;height:10px;border-radius:50%;background:#9aa7bb;flex:none}
+  .dot.ok{background:#22a35f}
+  .viewers{display:flex;flex-direction:column;gap:10px}
+  .viewer{display:flex;align-items:center;gap:10px}
+  .av{width:36px;height:36px;border-radius:50%;background:#eef2ff;color:#7c3aed;display:flex;align-items:center;justify-content:center;font-weight:800;overflow:hidden;flex:none}
+  .av img{width:100%;height:100%;object-fit:cover}
+  .vname{font-weight:700;font-size:14px}
+  .muted{color:#64748b;font-size:13px}
+  .chatlog{height:110px;overflow:auto;border:1px solid #e7edf5;border-radius:10px;padding:10px 12px;background:#fbfdff;font-size:13px;line-height:1.55}
+  .chatlog .t{color:#9aa7bb;margin-right:6px}
+  .chatlog .n{color:#7c3aed;font-weight:700}
+  .chatrow{display:flex;gap:8px;margin-top:10px}
+  .chatrow input{flex:1;border:1px solid #e7edf5;border-radius:9px;padding:9px 12px;font-size:14px;outline:none}
+  .rec{display:none;margin-top:12px;background:#fdecec;color:#c2410c;border-radius:9px;padding:8px 12px;font-weight:700;font-size:13px}
+  .rec.show{display:block}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:14px}
+  .bar label{font-size:13px;display:flex;gap:6px;align-items:center;margin-left:4px}
+  progress{width:92px}
+  .foot{margin-top:12px;color:#9aa7bb;font-size:12px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">S</div>
+    <div>
+      <h1>SWRemote</h1>
+      <div class="sub">Remote access for this PC &middot; <span id="ver"></span></div>
+    </div>
+    <div class="pill" id="pill">Starting&hellip;</div>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <div class="lbl">YOUR ID</div>
+      <div class="row"><div class="big" id="id">&mdash;</div><button onclick="act('copy-id')">Copy ID</button></div>
+      <div class="lbl" style="margin-top:14px">PIN</div>
+      <div class="row"><div class="big pin" id="pin">&mdash;</div><button onclick="act('new-pin')">New PIN</button></div>
+      <div class="status" style="margin-top:14px"><span class="dot" id="dot"></span><span id="status">Starting&hellip;</span></div>
+    </div>
+
+    <div class="card">
+      <div class="lbl">INVITE LINK</div>
+      <div class="row"><div class="mono" id="link">&mdash;</div><button onclick="act('copy-link')">Copy</button></div>
+      <div class="lbl" style="margin-top:14px">LINK THIS DEVICE</div>
+      <div class="row"><div class="mono" id="claim">&mdash;</div><button onclick="act('copy-claim')">Copy code</button></div>
+      <div class="lbl" style="margin-top:14px">VIEWERS</div>
+      <div class="viewers" id="viewers"><span class="muted">No viewers yet</span></div>
+    </div>
+
+    <div class="card">
+      <div class="lbl">WAKE-UP</div>
+      <div class="row"><span class="muted" id="wake" style="flex:1">Checking&hellip;</span><button id="wakeBtn" onclick="act('wake-install')">Install</button></div>
+      <div class="lbl" style="margin-top:14px">CAMERA</div>
+      <div class="muted" id="cam">checking&hellip;</div>
+    </div>
+
+    <div class="card">
+      <div class="lbl">SESSION</div>
+      <div class="muted">Uptime <b id="uptime" style="color:#1d2538">&mdash;</b> &middot; <span id="meta"></span></div>
+      <div class="lbl" style="margin-top:14px">UPDATE</div>
+      <div class="row"><button id="updBtn" onclick="act('update')">Check for Updates</button><progress id="prog" value="0" max="100" style="display:none"></progress></div>
+    </div>
+
+    <div class="card wide">
+      <div class="lbl">CHAT &mdash; messages from viewers</div>
+      <div class="chatlog" id="chatlog"><span class="muted">No messages yet.</span></div>
+      <div class="chatrow">
+        <input id="chatIn" placeholder="Reply to your viewers&hellip;" maxlength="200">
+        <button class="primary" onclick="sendChat()">Send</button>
+      </div>
+      <div class="rec" id="rec"></div>
+    </div>
+  </div>
+
+  <div class="bar">
+    <button onclick="act('fix-cam')">Fix camera</button>
+    <button onclick="act('repair-win')">Repair Windows</button>
+    <label><input type="checkbox" id="autorun" onchange="act('autorun')"> Start SWRemote with Windows</label>
+    <span style="flex:1"></span>
+    <button class="danger" onclick="act('quit')">Quit</button>
+  </div>
+  <div class="foot">SWRemote &middot; your PC, your rules &mdash; nothing here is ever a popup.</div>
+</div>
+<script>
+  function post(o){ if(window.chrome && window.chrome.webview) window.chrome.webview.postMessage(JSON.stringify(o)); }
+  function act(a, extra){
+    var o = {t:"action", a:a};
+    if (a === "autorun") o.on = document.getElementById("autorun").checked;
+    if (extra) Object.assign(o, extra);
+    post(o);
+  }
+  function sendChat(){
+    var el = document.getElementById("chatIn"), v = el.value.trim();
+    if (!v) return;
+    post({t:"action", a:"chat-send", text:v});
+    el.value = "";
+    el.focus();
+  }
+  document.getElementById("chatIn").addEventListener("keydown", function(e){
+    if (e.key === "Enter") sendChat();
+  });
+  var lastChat = "";
+  window.chrome && window.chrome.webview && window.chrome.webview.addEventListener("message", function(ev){
+    var s;
+    try { s = JSON.parse(ev.data); } catch(e) { return; }
+    if (s.t !== "state") return;
+    document.getElementById("id").textContent = s.id || "—";
+    document.getElementById("pin").textContent = s.pin || "—";
+    document.getElementById("link").textContent = s.link || "—";
+    document.getElementById("claim").textContent = s.claim || "—";
+    document.getElementById("status").textContent = s.status || "";
+    document.getElementById("dot").className = "dot" + (s.statusOk ? " ok" : "");
+    document.getElementById("pill").textContent = s.pill || s.status || "";
+    document.getElementById("pill").className = "pill" + (s.pillOk ? " ok" : "");
+    document.getElementById("wake").textContent = s.wake || "";
+    document.getElementById("wakeBtn").textContent = s.wakeInstalled ? "Reinstall" : "Install";
+    document.getElementById("cam").textContent = s.cam || "";
+    document.getElementById("uptime").textContent = s.uptime || "—";
+    document.getElementById("meta").textContent = s.viewCount === 1 ? "1 viewer" : (s.viewCount + " viewers");
+    document.getElementById("ver").textContent = "v" + (s.version || "");
+    document.getElementById("autorun").checked = !!s.autoRun;
+    var ub = document.getElementById("updBtn");
+    ub.textContent = s.updText || "Check for Updates";
+    ub.disabled = !s.updOn;
+    var pr = document.getElementById("prog");
+    if (s.progress >= 0) { pr.style.display = ""; pr.value = s.progress; } else { pr.style.display = "none"; }
+    var vw = document.getElementById("viewers");
+    if (!s.viewers || !s.viewers.length) {
+      vw.innerHTML = '<span class="muted">No viewers yet</span>';
+    } else {
+      vw.innerHTML = s.viewers.map(function(v){
+        var init = (v.name || "?").trim().charAt(0).toUpperCase() || "?";
+        var av = v.avatar ? '<img src="' + v.avatar.replace(/"/g, "") + '" onerror="this.remove()">' : init;
+        return '<div class="viewer"><div class="av">' + av + '</div><div class="vname">' +
+          String(v.name || "Viewer").replace(/</g, "&lt;") + "</div></div>";
+      }).join("");
+    }
+    var chatKey = (s.chat || []).join("\n");
+    if (chatKey !== lastChat) {
+      lastChat = chatKey;
+      var cl = document.getElementById("chatlog");
+      if (!s.chat || !s.chat.length) {
+        cl.innerHTML = '<span class="muted">No messages yet.</span>';
+      } else {
+        cl.innerHTML = s.chat.map(function(line){
+          var m = line.match(/^(\S+)\s+([^:]+):\s*(.*)$/);
+          if (!m) return '<div>' + String(line).replace(/</g, "&lt;") + "</div>";
+          return '<div><span class="t">' + m[1] + '</span><span class="n">' +
+            m[2].replace(/</g, "&lt;") + ":</span> " + m[3].replace(/</g, "&lt;") + "</div>";
+        }).join("");
+      }
+      cl.scrollTop = cl.scrollHeight;
+    }
+    var rec = document.getElementById("rec");
+    if (s.recShow) { rec.className = "rec show"; rec.textContent = s.recText || "● REC"; }
+    else { rec.className = "rec"; }
+  });
+  post({t:"ready"});
+</script>
+</body>
+</html>

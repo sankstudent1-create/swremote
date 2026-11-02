@@ -27,52 +27,53 @@ var (
 	msimg = windows.NewLazySystemDLL("msimg32.dll")
 	comc  = windows.NewLazySystemDLL("comctl32.dll")
 
-	pRegisterClassExW   = u32.NewProc("RegisterClassExW")
-	pCreateWindowExW    = u32.NewProc("CreateWindowExW")
-	pRegisterClassW     = u32.NewProc("RegisterClassW")
-	pDefWindowProcW     = u32.NewProc("DefWindowProcW")
-	pShowWindow         = u32.NewProc("ShowWindow")
-	pGetClientRect      = u32.NewProc("GetClientRect")   // v8.9.11: paint to the real client size
-	pSetFocus           = u32.NewProc("SetFocus")             // v8.9.10: chat input
-	pFlashWindow        = u32.NewProc("FlashWindow")          // v8.9.10: chat attention
+	pRegisterClassExW    = u32.NewProc("RegisterClassExW")
+	pCreateWindowExW     = u32.NewProc("CreateWindowExW")
+	pRegisterClassW      = u32.NewProc("RegisterClassW")
+	pDefWindowProcW      = u32.NewProc("DefWindowProcW")
+	pShowWindow          = u32.NewProc("ShowWindow")
+	pDestroyWindow       = u32.NewProc("DestroyWindow")       // v8.9.13: webview fallback cleanup
+	pGetClientRect       = u32.NewProc("GetClientRect")       // v8.9.11: paint to the real client size
+	pSetFocus            = u32.NewProc("SetFocus")            // v8.9.10: chat input
+	pFlashWindow         = u32.NewProc("FlashWindow")         // v8.9.10: chat attention
 	pGetForegroundWindow = u32.NewProc("GetForegroundWindow") // v8.9.10: chat attention
-	pIsDialogMessage    = u32.NewProc("IsDialogMessageW")     // v8.9.10: Tab + Enter in chat input
-	pUpdateWindow       = u32.NewProc("UpdateWindow")
-	pGetMessageW        = u32.NewProc("GetMessageW")
-	pTranslateMessage   = u32.NewProc("TranslateMessage")
-	pDispatchMessageW   = u32.NewProc("DispatchMessageW")
-	pPostQuitMessage    = u32.NewProc("PostQuitMessage")
-	pPostMessageW       = u32.NewProc("PostMessageW")
-	pSendMessageW       = u32.NewProc("SendMessageW")
-	pSetWindowTextW     = u32.NewProc("SetWindowTextW")
-	pLoadCursorW        = u32.NewProc("LoadCursorW")
-	pLoadImageW         = u32.NewProc("LoadImageW")
-	pBeginPaint         = u32.NewProc("BeginPaint")
-	pEndPaint           = u32.NewProc("EndPaint")
-	pOpenClipboard      = u32.NewProc("OpenClipboard")
-	pEmptyClipboard     = u32.NewProc("EmptyClipboard")
-	pSetClipboardData   = u32.NewProc("SetClipboardData")
-	pCloseClipboard     = u32.NewProc("CloseClipboard")
-	pCreateMutexW       = k32.NewProc("CreateMutexW")
-	pCreateFontW        = g32.NewProc("CreateFontW")
-	pCreateSolidBrush   = g32.NewProc("CreateSolidBrush")
-	pCreatePen          = g32.NewProc("CreatePen")
-	pRoundRect          = g32.NewProc("RoundRect")
-	pEllipse            = g32.NewProc("Ellipse")
-	pGetDC              = u32.NewProc("GetDC")
-	pReleaseDC          = u32.NewProc("ReleaseDC")
-	pCreateDIBitmap     = g32.NewProc("CreateDIBitmap")
-	pDeleteObject       = g32.NewProc("DeleteObject")
-	pCreateCompatibleDC = g32.NewProc("CreateCompatibleDC")
-	pDeleteDC           = g32.NewProc("DeleteDC")
-	pBitBlt             = g32.NewProc("BitBlt")
-	pSetTextColor       = g32.NewProc("SetTextColor")
-	pSetBkMode          = g32.NewProc("SetBkMode")
-	pSelectObject       = g32.NewProc("SelectObject")
-	pFillRect           = u32.NewProc("FillRect")
-	pDrawTextW          = u32.NewProc("DrawTextW")
-	pGradientFill       = msimg.NewProc("GradientFill")
-	pInitCommon         = comc.NewProc("InitCommonControlsEx")
+	pIsDialogMessage     = u32.NewProc("IsDialogMessageW")    // v8.9.10: Tab + Enter in chat input
+	pUpdateWindow        = u32.NewProc("UpdateWindow")
+	pGetMessageW         = u32.NewProc("GetMessageW")
+	pTranslateMessage    = u32.NewProc("TranslateMessage")
+	pDispatchMessageW    = u32.NewProc("DispatchMessageW")
+	pPostQuitMessage     = u32.NewProc("PostQuitMessage")
+	pPostMessageW        = u32.NewProc("PostMessageW")
+	pSendMessageW        = u32.NewProc("SendMessageW")
+	pSetWindowTextW      = u32.NewProc("SetWindowTextW")
+	pLoadCursorW         = u32.NewProc("LoadCursorW")
+	pLoadImageW          = u32.NewProc("LoadImageW")
+	pBeginPaint          = u32.NewProc("BeginPaint")
+	pEndPaint            = u32.NewProc("EndPaint")
+	pOpenClipboard       = u32.NewProc("OpenClipboard")
+	pEmptyClipboard      = u32.NewProc("EmptyClipboard")
+	pSetClipboardData    = u32.NewProc("SetClipboardData")
+	pCloseClipboard      = u32.NewProc("CloseClipboard")
+	pCreateMutexW        = k32.NewProc("CreateMutexW")
+	pCreateFontW         = g32.NewProc("CreateFontW")
+	pCreateSolidBrush    = g32.NewProc("CreateSolidBrush")
+	pCreatePen           = g32.NewProc("CreatePen")
+	pRoundRect           = g32.NewProc("RoundRect")
+	pEllipse             = g32.NewProc("Ellipse")
+	pGetDC               = u32.NewProc("GetDC")
+	pReleaseDC           = u32.NewProc("ReleaseDC")
+	pCreateDIBitmap      = g32.NewProc("CreateDIBitmap")
+	pDeleteObject        = g32.NewProc("DeleteObject")
+	pCreateCompatibleDC  = g32.NewProc("CreateCompatibleDC")
+	pDeleteDC            = g32.NewProc("DeleteDC")
+	pBitBlt              = g32.NewProc("BitBlt")
+	pSetTextColor        = g32.NewProc("SetTextColor")
+	pSetBkMode           = g32.NewProc("SetBkMode")
+	pSelectObject        = g32.NewProc("SelectObject")
+	pFillRect            = u32.NewProc("FillRect")
+	pDrawTextW           = u32.NewProc("DrawTextW")
+	pGradientFill        = msimg.NewProc("GradientFill")
+	pInitCommon          = comc.NewProc("InitCommonControlsEx")
 
 	pGlobalAlloc  = k32.NewProc("GlobalAlloc")
 	pGlobalLock   = k32.NewProc("GlobalLock")
@@ -100,6 +101,7 @@ const (
 	WM_DESTROY          = 2
 	WM_PAINT            = 15
 	WM_CLOSE            = 16
+	WM_SIZE             = 5
 	WM_COMMAND          = 273
 	WM_CTLCOLORSTATIC   = 312
 	WM_TIMER            = 0x0113
@@ -133,6 +135,7 @@ const (
 	WM_APP_META     = WM_APP + 5 // v8.9.2: worker-thread viewers/uptime text
 	WM_APP_CHAT     = WM_APP + 6 // v8.9.10: a chat message arrived — drain into the chat log
 	WM_APP_REC      = WM_APP + 7 // v8.9.10: recording indicator changed
+	WM_APP_WVMSG    = WM_APP + 8 // v8.9.13: a WebView2 page message — dispatch on the GUI thread
 )
 
 const (
@@ -230,41 +233,44 @@ var wndProcCb = windows.NewCallback(wndProc)
 
 // ---------- state ----------
 type guiState struct {
-	mu         sync.Mutex
-	statusText string
-	statusOK   bool // green vs gray dot
-	pillText   string
-	pillOK     bool
-	progress   int // -1 = hidden
-	updBtnText string
-	updBtnOn   bool
-	camStatus  string // v8.4.0: one-line camera health from runPrereqCheck
-	viewers    int
-	chatPending []string // v8.9.10: chat lines waiting for the UI thread
-	recText    string   // v8.9.10: recording indicator text ("" = hidden)
-	recShow    bool
-	started    time.Time
+	mu            sync.Mutex
+	statusText    string
+	statusOK      bool // green vs gray dot
+	pillText      string
+	pillOK        bool
+	progress      int // -1 = hidden
+	updBtnText    string
+	updBtnOn      bool
+	camStatus     string // v8.4.0: one-line camera health from runPrereqCheck
+	viewers       int
+	chatPending   []string // v8.9.10: chat lines waiting for the UI thread
+	chatLines     []string // v8.9.13: last chat lines, shared with the webview UI
+	wakeStatus    string   // v8.9.13: wake-up service line, shared with the webview UI
+	wakeInstalled bool
+	recText       string // v8.9.10: recording indicator text ("" = hidden)
+	recShow       bool
+	started       time.Time
 }
 
 var (
-	gHWND    uintptr
-	gState   = &guiState{statusText: "Starting…", progress: -1, updBtnText: "Check for Updates", updBtnOn: true, started: time.Now()}
-	gCtl     = map[int]uintptr{}
+	gHWND  uintptr
+	gState = &guiState{statusText: "Starting…", progress: -1, updBtnText: "Check for Updates", updBtnOn: true, started: time.Now()}
+	gCtl   = map[int]uintptr{}
 	// v8.9.11: adaptive layout — compact when the screen is short, and
 	// the chat card rect the paint handler draws behind the chat controls.
 	gCompact   bool
 	gChatRich  bool
 	gChatCardT int32
 	gChatCardB int32
-	gWhiteBr uintptr
-	gBgBr    uintptr
-	gBlueBr  uintptr
-	gCardBr  uintptr
-	gCardPen uintptr
-	gGreenBr uintptr
-	gGrayBr  uintptr
-	gFonts   = map[string]uintptr{}
-	gLogoBmp uintptr
+	gWhiteBr   uintptr
+	gBgBr      uintptr
+	gBlueBr    uintptr
+	gCardBr    uintptr
+	gCardPen   uintptr
+	gGreenBr   uintptr
+	gGrayBr    uintptr
+	gFonts     = map[string]uintptr{}
+	gLogoBmp   uintptr
 )
 
 // loadLogoBitmap writes the embedded AI logo to a temp file and loads it as
@@ -375,6 +381,10 @@ func guiAddChat(who, text string) {
 	line := time.Now().Format("15:04") + " " + who + ": " + text
 	gState.mu.Lock()
 	gState.chatPending = append(gState.chatPending, line)
+	gState.chatLines = append(gState.chatLines, line)
+	if len(gState.chatLines) > 100 {
+		gState.chatLines = gState.chatLines[len(gState.chatLines)-100:]
+	}
 	gState.mu.Unlock()
 	if gHWND != 0 {
 		pPostMessageW.Call(gHWND, WM_APP_CHAT, 0, 0)
@@ -667,7 +677,17 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		}
 		pSetBkMode.Call(hdc, TRANSPARENT)
 		return gWhiteBr
+	case WM_SIZE:
+		// v8.9.13: keep the WebView2 child filling the host window.
+		wvResize()
+		return 0
 	case WM_PAINT:
+		// v8.9.13: in webview mode the child covers the client area, so
+		// the GDI cards underneath are never seen — skip painting them.
+		if wvController != 0 {
+			r, _, _ := pDefWindowProcW.Call(hwnd, msg, wp, lp)
+			return r
+		}
 		var ps paintStruct
 		hdc, _, _ := pBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 		// light background (v8.8: website surface) — fill the real
@@ -719,6 +739,7 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		return 0
 	case WM_APP_STATUS:
 		applyStatus()
+		pushWebViewState()
 		return 0
 	case WM_APP_PROGRESS:
 		gState.mu.Lock()
@@ -732,6 +753,7 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 				pSendMessageW.Call(h, PBM_SETPOS, uintptr(pct), 0)
 			}
 		}
+		pushWebViewState()
 		return 0
 	case WM_APP_UPDBTN:
 		gState.mu.Lock()
@@ -753,12 +775,15 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		cs := gState.camStatus
 		gState.mu.Unlock()
 		setText(ctlCamVal, cs)
+		pushWebViewState()
 		return 0
 	case WM_APP_META:
 		refreshMeta()
+		pushWebViewState()
 		return 0
 	case WM_APP_CHAT:
 		drainChat()
+		pushWebViewState()
 		return 0
 	case WM_APP_REC:
 		gState.mu.Lock()
@@ -772,9 +797,24 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 			}
 			pShowWindow.Call(h, vis)
 		}
+		pushWebViewState()
+		return 0
+	case WM_APP_WVMSG:
+		// v8.9.13: a WebView2 page message, dispatched on the GUI thread
+		// (clipboard and control actions must run here, like clicks).
+		wvMsgMu.Lock()
+		js, ok := wvMsgQueue[wp]
+		if ok {
+			delete(wvMsgQueue, wp)
+		}
+		wvMsgMu.Unlock()
+		if ok {
+			dispatchWebViewAction(js)
+		}
 		return 0
 	case WM_TIMER:
-		heartbeatTick() // v8.9.4: the timer ONLY ticks the heartbeat now.
+		heartbeatTick()    // v8.9.4: the timer ONLY ticks the heartbeat now.
+		pushWebViewState() // v8.9.13: 1s refresh (uptime, viewer count)
 		// The per-second label refresh goes out as its own message instead
 		// of running inside the timer handler: a slow refresh (blocked
 		// label update, stalled paint) used to stall the heartbeat itself,
@@ -1052,6 +1092,21 @@ func runGUI() {
 	gFonts["small"] = mkFont("Segoe UI", 9, false)
 	gLogoBmp = loadLogoBitmap()
 
+	// v8.9.13: the agent window is now a WebView2 page — the same calm
+	// HTML/CSS design as the web console — when the Edge WebView2
+	// runtime is present. Otherwise it falls back to the classic GDI
+	// window, so a missing runtime can never leave the user with no
+	// window at all.
+	if runWebViewGUI() == nil {
+		return
+	}
+	runGDI()
+}
+
+// createHostWindow registers the window class (tolerating an existing
+// registration on the fallback path) and creates the centered,
+// screen-size-aware host window shared by both UI paths.
+func createHostWindow() (uintptr, error) {
 	cursor, _, _ := pLoadCursorW.Call(0, IDC_ARROW)
 	clsName := u16("SWRemoteWindow")
 	wc := wndClassExW{
@@ -1062,9 +1117,9 @@ func runGUI() {
 		lpszClassName: clsName,
 	}
 	wc.cbSize = uint32(unsafe.Sizeof(wc))
-	if r, _, _ := pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc))); r == 0 {
-		return
-	}
+	// Ignore the result: ERROR_CLASS_ALREADY_EXISTS is fine (fallback
+	// path re-registers); CreateWindowExW below is the real check.
+	pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
 
 	// v8.9.11: honor the screen size — a 780px window overflows a 768p
 	// laptop screen and hides the chat card and Quit button, and a
@@ -1093,9 +1148,17 @@ func runGUI() {
 		uintptr(wx), uintptr(wy), 876, uintptr(winH),
 		0, 0, 0, 0)
 	if hwnd == 0 {
-		return
+		return 0, fmt.Errorf("create window failed")
 	}
 	gHWND = hwnd
+	return hwnd, nil
+}
+
+func runGDI() {
+	hwnd, err := createHostWindow()
+	if err != nil {
+		return
+	}
 
 	// controls (client coords) — v8.8 layout: profile card + 2x3 grid
 	// left column

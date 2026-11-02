@@ -1780,6 +1780,9 @@ $("btn-record").onclick = () => {
 document.querySelectorAll(".rec-mode").forEach((b) => b.onclick = () => startRecording(b.dataset.mode));
 async function startRecording(mode) {
   $("rec-pop").classList.add("hidden");
+  // v8.9.13: never record a dead video track — if no frame has arrived
+  // yet the canvas is empty and the file comes out audio-only.
+  if (!frameW || !canvas.width) { toast("Wait for the screen to appear first, then record."); return; }
   try {
     let camStream = null, mixCtx = null, ownCtx = false;
     if (mode !== "screen") {
@@ -1804,11 +1807,13 @@ async function startRecording(mode) {
       const cx = comp.getContext("2d"), v = $("stream-cam");
       const draw = () => {
         if (!rec) return;
-        cx.drawImage(canvas, 0, 0, comp.width, comp.height);
-        if (v.readyState >= 2) {
-          const w = Math.round(comp.width * 0.28), h = Math.round(w * 3 / 4);
-          cx.drawImage(v, comp.width - w - 16, comp.height - h - 16, w, h);
-        }
+        try {
+          cx.drawImage(canvas, 0, 0, comp.width, comp.height);
+          if (v.readyState >= 2) {
+            const w = Math.round(comp.width * 0.28), h = Math.round(w * 3 / 4);
+            cx.drawImage(v, comp.width - w - 16, comp.height - h - 16, w, h);
+          }
+        } catch {}
         recRaf = requestAnimationFrame(draw);
       };
       videoStream = comp.captureStream(30);
@@ -1818,7 +1823,9 @@ async function startRecording(mode) {
     const tracks = [...videoStream.getVideoTracks()];
     if (recAudioDest) tracks.push(...recAudioDest.stream.getAudioTracks());
     const stream = new MediaStream(tracks);
-    const mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"]
+    // v8.9.13: VP8 first — VP9-first files played audio-only in players
+    // without VP9; VP8 plays everywhere.
+    const mime = ["video/webm;codecs=vp8", "video/webm;codecs=vp9", "video/webm"]
       .find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
     const recorder = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 4000000 } : undefined);
     const chunks = [];

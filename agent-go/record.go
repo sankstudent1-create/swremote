@@ -96,7 +96,9 @@ func newAVIWriter(path string, w, h, fps int) (*aviWriter, error) {
 	// strl
 	var strl bytes.Buffer
 	putStr(&strl, "strh")
-	putU32w(&strl, 56)
+	putU32w(&strl, 64) // v8.9.13: was 56 — AVISTREAMHEADER is 64 bytes
+	// (16 u32 fields incl. rcFrame); 56 made parsers read "strf" 8 bytes
+	// early, so no player could find the video stream at all.
 	putStr(&strl, "vids")
 	putStr(&strl, "MJPG")
 	putU32w(&strl, 0) // flags
@@ -417,21 +419,21 @@ func renderTextPill(text string, w, h int, bg, fg color.RGBA, pts int) *image.RG
 // ---------------------------------------------------------------- recorder
 
 type recSettings struct {
-	pipOn                     bool
+	pipOn                                bool
 	pipSize, pipPos, pipBorder, pipColor string
-	bannerOn                  bool
-	bannerText                string
-	cursorSize, cursorStyle   string
-	cursorZoom                bool
+	bannerOn                             bool
+	bannerText                           string
+	cursorSize, cursorStyle              string
+	cursorZoom                           bool
 }
 
 type recStroke struct {
-	kind        string // pen | pencil | text
-	color       string
-	size        int
-	pts         [][2]float64
-	text        string
-	x, y        float64
+	kind  string // pen | pencil | text
+	color string
+	size  int
+	pts   [][2]float64
+	text  string
+	x, y  float64
 }
 
 type recorder struct {

@@ -221,6 +221,12 @@ func refreshWakeStatus() {
 		for {
 			ensureWakeRunning() // v8.5.0: restart it if it stopped
 			s, installed := wakeStatus()
+			gState.mu.Lock()
+			gState.wakeStatus, gState.wakeInstalled = s, installed
+			gState.mu.Unlock()
+			if gHWND != 0 {
+				pPostMessageW.Call(gHWND, WM_APP_META, 0, 0)
+			}
 			if gCtl[ctlWakeVal] != 0 {
 				pSetWindowTextW.Call(gCtl[ctlWakeVal], uintptr(unsafe.Pointer(u16(s))))
 			}
