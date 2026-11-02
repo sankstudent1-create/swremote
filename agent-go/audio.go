@@ -44,15 +44,17 @@ var (
 	// short-lived header — unbounded growth and unsafe lifetimes.
 	pcmCh     = make(chan []byte, 64)
 	pcmPumpOn int32
+	// audioOpenLogged: waveOut failure is logged once, not per chunk.
+	audioOpenLogged int32
 )
 
-// waveFormatEx builds a WAVEFORMATEX struct for 8kHz mono 16-bit PCM.
+// waveFormatEx builds a WAVEFORMATEX struct for 16kHz mono 16-bit PCM.
 func waveFormatEx() [18]byte {
 	var w [18]byte
 	putU16(w[0:], 1)     // wFormatTag = PCM
 	putU16(w[2:], 1)     // nChannels = mono
-	putU32(w[4:], 8000)  // nSamplesPerSec
-	putU32(w[8:], 16000) // nAvgBytesPerSec
+	putU32(w[4:], 16000) // nSamplesPerSec
+	putU32(w[8:], 32000) // nAvgBytesPerSec
 	putU16(w[12:], 2)    // nBlockAlign
 	putU16(w[14:], 16)   // wBitsPerSample
 	putU16(w[16:], 0)    // cbSize
@@ -97,12 +99,19 @@ func pcmPump() {
 		}
 	}()
 	hdrSize := uintptr(unsafe.Sizeof(waveOutHdr{}))
+	played := 0
 	for buf := range pcmCh {
 		audioMu.Lock()
 		h := audioOpen
 		audioMu.Unlock()
 		if h == 0 || len(buf) == 0 {
 			continue
+		}
+		played++
+		if played == 1 {
+			log("speaker: playing viewer voice")
+		} else if played%1200 == 0 {
+			log("speaker: %d chunks played", played)
 		}
 		var hdr waveOutHdr
 		hdr.lpData = uintptr(unsafe.Pointer(&buf[0]))
@@ -113,15 +122,18 @@ func pcmPump() {
 		}
 		pWaveOutWrite.Call(h, uintptr(unsafe.Pointer(&hdr)), hdrSize)
 		// hold the header until this chunk has played, then release it
-		ms := len(buf) / 16 // 8kHz 16-bit mono = 16 bytes/ms
+		ms := len(buf) / 32 // 16kHz 16-bit mono = 32 bytes/ms
 		time.Sleep(time.Duration(ms)*time.Millisecond + 30*time.Millisecond)
 		pWaveOutUnprep.Call(h, uintptr(unsafe.Pointer(&hdr)), hdrSize)
 	}
 }
 
-// playPCM queues one chunk of 8kHz mono 16-bit PCM for playback.
+// playPCM queues one chunk of 16kHz mono 16-bit PCM for playback.
 func playPCM(pcm []byte) {
 	if !openAudio() {
+		if atomic.CompareAndSwapInt32(&audioOpenLogged, 0, 1) {
+			log("speaker: waveOutOpen failed — viewer voice will not play")
+		}
 		return
 	}
 	ensurePCMPump()

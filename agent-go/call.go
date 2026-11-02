@@ -1,7 +1,7 @@
 package main
 
 // v6.0: video call — the remote viewer streams camera (JPEG frames, binary
-// 0x04) and mic (8kHz mono 16-bit PCM, binary 0x05) to this PC. This PC shows
+// 0x04) and mic (16kHz mono 16-bit PCM, binary 0x05) to this PC. This PC shows
 // the video in a small window and plays the audio via waveOut.
 // This PC's own camera/mic capture is Phase 4 (see docs/ROADMAP-V3.md).
 

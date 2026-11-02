@@ -611,6 +611,10 @@ func runSession(cfg *Config) error {
 	stop := make(chan struct{})
 	defer close(stop)
 
+	// PC system-audio loopback (v8.9.9) — runs with the session, sends
+	// only while the PC-sound toggle is on.
+	safeGo("loopback", func() { loopbackLoop(stop) })
+
 	// screen sender — tiled dirty-region streaming (v3.0).
 	// Captures at cfg.FPS, diffs 128x128 tiles vs the previous frame and
 	// sends only changed tiles (0x03). Full keyframes (0x01) go out on
@@ -684,6 +688,11 @@ func runSession(cfg *Config) error {
 					if tileChanged(img, prev, tileRect(idx, cols, w, h)) {
 						changed = append(changed, idx)
 					}
+				}
+				if needKeyframe.Load() {
+					// v8.9.9: a keyframe was requested mid-tick — drop these
+					// stale tiles; the full frame goes out next tick.
+					changed = nil
 				}
 				if len(changed) > nTiles*40/100 {
 					// too much changed — a full keyframe is cheaper
@@ -825,6 +834,30 @@ func runSession(cfg *Config) error {
 			}
 			err := killApp(pid)
 			sendWSJSON(map[string]any{"t": "app-kill-result", "pid": pid, "ok": err == nil, "error": appErr(err)})
+		case "restart-agent":
+			sendWSJSON(map[string]any{"t": "restart-agent-result", "ok": true})
+			go func() { time.Sleep(300 * time.Millisecond); restartSelf() }()
+		case "shutdown":
+			if err := enableShutdownPrivilege(); err != nil {
+				sendWSJSON(map[string]any{"t": "shutdown-result", "ok": false, "error": err.Error()})
+			} else {
+				sendWSJSON(map[string]any{"t": "shutdown-result", "ok": true})
+				go func() { time.Sleep(500 * time.Millisecond); doPower(false) }()
+			}
+		case "reboot":
+			if err := enableShutdownPrivilege(); err != nil {
+				sendWSJSON(map[string]any{"t": "reboot-result", "ok": false, "error": err.Error()})
+			} else {
+				sendWSJSON(map[string]any{"t": "reboot-result", "ok": true})
+				go func() { time.Sleep(500 * time.Millisecond); doPower(true) }()
+			}
+		case "pc-audio":
+			on := true
+			if b, ok := msg["on"].(bool); ok {
+				on = b
+			}
+			setLoopback(on)
+			sendWSJSON(map[string]any{"t": "pc-audio-result", "on": on})
 		case "file_meta":
 			handleFileMeta(msg)
 		case "lock":

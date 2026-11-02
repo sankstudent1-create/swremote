@@ -103,7 +103,7 @@ func waveInCaptureLoop(stop <-chan struct{}) {
 		waveInHandle = 0
 	}()
 
-	// allocate 4 buffers of 0.5s each (8000 samples * 2 bytes = 16000 bytes)
+	// allocate 4 buffers of 0.5s each (16000 bytes at 16kHz mono 16-bit)
 	const bufSize = 16000
 	const numBufs = 4
 	hdrs := make([]waveInHdr, numBufs)

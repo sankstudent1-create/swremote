@@ -755,6 +755,8 @@ function onWsMsg(ev) {
     setStatus(""); $("sess-dot").className = "dot on";
     if (m.screen) sizeCanvas(m.screen.w, m.screen.h);
     if (m.apps) renderApps(m.apps); // cached list from the relay database
+    lastFrameAt = Date.now(); staleKeySent = false;
+    $("sess-stale").classList.add("hidden");
     ws.send(JSON.stringify({ t: "keyframe" })); // ask for a full frame now
     startLatLoop(); // v10.4: live latency pill (needs agent v8.9.4 pong)
     if (wasReconnect && frameW) toast("Reconnected ⚡");
@@ -768,6 +770,9 @@ function onWsMsg(ev) {
   else if (m.t === "apps") renderApps(m.apps || []);
   else if (m.t === "app-launch-result") { toast(m.ok ? "Opened." : "Could not open: " + (m.error || "")); if (m.ok) requestApps(); }
   else if (m.t === "app-kill-result") { toast(m.ok ? "Stopped." : "Could not stop: " + (m.error || "")); requestApps(); }
+  else if (m.t === "restart-agent-result") toast("Agent restarting — session will reconnect.");
+  else if (m.t === "shutdown-result") toast(m.ok ? "Shutting down…" : "Could not shut down: " + (m.error || ""));
+  else if (m.t === "reboot-result") toast(m.ok ? "Restarting PC…" : "Could not restart: " + (m.error || ""));
   else if (m.t === "cursor") moveRemoteCursor(m.x, m.y);
   else if (m.t === "pong" && m.ts) { // v10.4: live session latency
     const ms = Date.now() - m.ts, el = $("sess-lat");
@@ -786,17 +791,20 @@ function handleBinary(u8) {
   if (kind === BIN_FILE) { recvFileChunk(u8.subarray(1)); return; }
   if (kind === 0x06) { showPCVideo(u8.subarray(1)); return; } // PC camera frame
   if (kind === 0x07) { playPCAudio(u8.subarray(1)); return; } // PC mic PCM
+  if (kind === 0x08) { if (pcSoundOn) playPCAudio(u8.subarray(1)); return; } // PC system audio (loopback)
 }
 
 // (meeting showPCVideo is defined in the meeting section below)
-// PC mic PCM (8kHz mono 16-bit) -> speakers
+// PC mic PCM (16kHz mono 16-bit) -> speakers
 let pcAudioCtx = null;
+let pcSoundOn = true; // v10.9: PC system-audio toggle
+let lastFrameAt = 0, staleKeySent = false; // v10.9: stale-screen watch
 function playPCAudio(pcm) {
   try {
     pcAudioCtx = pcAudioCtx || new (window.AudioContext || window.webkitAudioContext)();
     if (pcAudioCtx.state === "suspended") pcAudioCtx.resume(); // autoplay policy can leave it parked
     const n = pcm.length / 2;
-    const buf = pcAudioCtx.createBuffer(1, n, 8000);
+    const buf = pcAudioCtx.createBuffer(1, n, 16000);
     const ch = buf.getChannelData(0);
     const dv = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength);
     for (let i = 0; i < n; i++) ch[i] = dv.getInt16(i * 2, true) / 32768;
@@ -864,6 +872,7 @@ async function drawFrame(jpeg) {
       ctx.drawImage(bmp, 0, 0);
       bmp.close();
       framesThisSec++;
+      lastFrameAt = Date.now();
       cur = pendingFrame; pendingFrame = null;
     }
     fitCanvas(); // re-fit if the layout settled after the first frames
@@ -925,6 +934,7 @@ async function drawTile(u8) {
   ctx.drawImage(bmp, col * TILE, row * TILE);
   bmp.close();
   framesThisSec++;
+  lastFrameAt = Date.now();
   if ($("sess-status").textContent) setStatus("");
 }
 
@@ -1218,14 +1228,14 @@ function startCallMedia() {
       }, "image/jpeg", 0.6);
     } catch {}
   }, 200);
-  // mic: downsample to 8kHz mono PCM as binary 0x05
+  // mic: downsample to 16kHz mono PCM as binary 0x05
   try {
     callAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (callAudioCtx.state === "suspended") callAudioCtx.resume();
     const src = callAudioCtx.createMediaStreamSource(callStream);
     const len = 4096;
     callAudioNode = callAudioCtx.createScriptProcessor(len, 1, 1);
-    const inRate = callAudioCtx.sampleRate, outRate = 8000;
+    const inRate = callAudioCtx.sampleRate, outRate = 16000;
     callAudioNode.onaudioprocess = (e) => {
       if (callState !== "incall" || !callMicOn || !ws || ws.readyState !== 1) return;
       const inp = e.inputBuffer.getChannelData(0);
@@ -1428,6 +1438,17 @@ function renderApps(apps, cached) {
 $("btn-apps").onclick = () => { toggleDrawer("apps-panel"); requestApps(); };
 $("apps-refresh").onclick = requestApps;
 
+/* ---------- stale screen watch (v10.9) ---------- */
+setInterval(() => {
+  if (!sessionLive) return;
+  const stale = lastFrameAt && Date.now() - lastFrameAt > 4000;
+  $("sess-stale").classList.toggle("hidden", !stale);
+  if (stale && !staleKeySent && ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ t: "keyframe" }));
+    staleKeySent = true;
+  } else if (!stale) staleKeySent = false;
+}, 1000);
+
 /* ---------- files: console -> agent ---------- */
 let pendingFile = null;
 $("btn-files").onclick = () => toggleDrawer("files-panel");
@@ -1498,6 +1519,16 @@ document.querySelectorAll(".q-presets button").forEach((b) => b.onclick = () => 
   toast("Quality: " + b.textContent);
 });
 $("btn-lock").onclick = () => { if (ws && confirm("Lock the remote PC now?")) ws.send(JSON.stringify({ t: "lock" })); };
+$("btn-refresh-screen").onclick = () => { if (ws && ws.readyState === 1) { ws.send(JSON.stringify({ t: "keyframe" })); toast("Refreshing screen…"); } };
+$("btn-pcsound").onclick = () => {
+  pcSoundOn = !pcSoundOn;
+  $("btn-pcsound").querySelector(".mi").textContent = pcSoundOn ? "volume_up" : "volume_off";
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: "pc-audio", on: pcSoundOn }));
+  toast("PC sound " + (pcSoundOn ? "on." : "off."));
+};
+$("btn-restart-agent").onclick = () => { if (ws && confirm("Restart the agent on this PC? It will reconnect in a few seconds.")) ws.send(JSON.stringify({ t: "restart-agent" })); };
+$("btn-restart-pc").onclick = () => { if (ws && confirm("Restart this PC? It will come back to the login screen.")) ws.send(JSON.stringify({ t: "reboot" })); };
+$("btn-shutdown-pc").onclick = () => { if (ws && confirm("Shut down this PC? It will stay off until someone powers it on.")) ws.send(JSON.stringify({ t: "shutdown" })); };
 
 /* ---------- session latency (v10.4, needs agent v8.9.4 pong) ---------- */
 let latTimer = null;

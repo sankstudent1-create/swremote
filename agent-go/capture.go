@@ -5,7 +5,7 @@ package main
 //           GetCurrentBuffer — no COM callback interface to implement.
 //   Mic:    WASAPI IAudioClient + IAudioCaptureClient, polled.
 // Both send to the viewer: camera as binary 0x06 (JPEG), mic as binary 0x07
-// (8kHz mono 16-bit PCM). Failures are logged; the agent reports
+// (16kHz mono 16-bit PCM). Failures are logged; the agent reports
 // av-state with cam/mic=false so the viewer sees "unavailable", never a hang.
 
 import (
@@ -242,7 +242,7 @@ func micCaptureLoop(stop <-chan struct{}) {
 					break
 				}
 				if flags&2 == 0 && nFrames > 0 { // not silent
-					pcm := micToPCM(data, int(nFrames), ch, bits, isFloat)
+					pcm := micToPCM(data, int(nFrames), ch, bits, isFloat, rate)
 					if len(pcm) > 0 {
 						sendBinary(0x07, pcm)
 					}
@@ -268,8 +268,8 @@ func drainMic(cc uintptr) {
 	}
 }
 
-// micToPCM converts captured frames to 8kHz mono 16-bit PCM.
-func micToPCM(data uintptr, nFrames, ch, bits int, isFloat bool) []byte {
+// micToPCM converts captured frames to 16kHz mono 16-bit PCM.
+func micToPCM(data uintptr, nFrames, ch, bits int, isFloat bool, rate int) []byte {
 	if nFrames == 0 || ch == 0 {
 		return nil
 	}
@@ -295,11 +295,27 @@ func micToPCM(data uintptr, nFrames, ch, bits int, isFloat bool) []byte {
 	} else {
 		return nil // unsupported format
 	}
-	// resample to 8kHz (assume input is 44.1k/48k; measure not available — use ratio by frames/time would need clock; simple decimation by ratio)
-	// We don't know the exact input rate here; capture typically 48k. Use fixed 6:1 (48k->8k).
-	out := make([]byte, 0, nFrames/6*2)
-	for i := 0; i < nFrames; i += 6 {
-		v := mono[i]
+	// resample to 16kHz mono with linear interpolation (input is the
+	// device mix rate, typically 44100 or 48000 — measured, not assumed)
+	if rate <= 0 {
+		rate = 48000
+	}
+	outFrames := nFrames * 16000 / rate
+	if outFrames <= 0 {
+		return nil
+	}
+	out := make([]byte, 0, outFrames*2)
+	for j := 0; j < outFrames; j++ {
+		pos := float64(j) * float64(rate) / 16000.0
+		i0 := int(pos)
+		if i0 >= nFrames-1 {
+			i0 = nFrames - 1
+		}
+		frac := pos - float64(i0)
+		v := mono[i0]
+		if i0+1 < nFrames {
+			v = mono[i0]*(1-frac) + mono[i0+1]*frac
+		}
 		if v > 1 {
 			v = 1
 		} else if v < -1 {

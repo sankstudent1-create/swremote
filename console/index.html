@@ -194,7 +194,7 @@
 <section id="scr-session" class="screen">
   <header class="session-bar">
     <button id="btn-disconnect" class="icon-btn" title="Disconnect" aria-label="Disconnect"><span class="mi">close</span></button>
-    <div class="sess-title"><span id="sess-dot" class="dot"></span><span id="sess-name">—</span><span id="sess-fps" class="fps-pill"></span><span id="sess-lat" class="fps-pill"></span><span id="rec-ind" class="fps-pill rec hidden">● REC <span id="rec-time">0:00</span></span></div>
+    <div class="sess-title"><span id="sess-dot" class="dot"></span><span id="sess-name">—</span><span id="sess-fps" class="fps-pill"></span><span id="sess-lat" class="fps-pill"></span><span id="sess-stale" class="fps-pill hidden">Stale</span><span id="rec-ind" class="fps-pill rec hidden">● REC <span id="rec-time">0:00</span></span></div>
     <div class="sess-spacer"></div>
   </header>
 
@@ -279,6 +279,7 @@
 
   <div id="quality-pop" class="popover hidden">
     <div class="q-presets">
+      <button type="button" data-q="50" data-s="0.7">Realtime</button>
       <button type="button" data-q="65" data-s="0.8">Standard</button>
       <button type="button" data-q="85" data-s="1">High</button>
       <button type="button" data-q="90" data-s="1">Ultra</button>
@@ -300,6 +301,11 @@
   <div id="more-pop" class="popover hidden">
     <button id="btn-files" title="Send file"><span class="mi t-ico">folder</span><span>Send file</span></button>
     <button id="btn-lock" title="Lock PC"><span class="mi t-ico">lock</span><span>Lock PC</span></button>
+    <button id="btn-refresh-screen" title="Refresh screen"><span class="mi t-ico">refresh</span><span>Refresh screen</span></button>
+    <button id="btn-pcsound" title="PC sound"><span class="mi t-ico">volume_up</span><span>PC sound</span></button>
+    <button id="btn-restart-agent" title="Restart agent"><span class="mi t-ico">restart_alt</span><span>Restart agent</span></button>
+    <button id="btn-restart-pc" title="Restart PC"><span class="mi t-ico">restart_alt</span><span>Restart PC</span></button>
+    <button id="btn-shutdown-pc" title="Shut down PC"><span class="mi t-ico">power_settings_new</span><span>Shut down PC</span></button>
   </div>
 </section>
 
