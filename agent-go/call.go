@@ -133,7 +133,6 @@ func onCallStart(msg map[string]any) {
 	log("call: video window opened")
 	startPCCapture()
 	log("call: pc capture started")
-	notify("SWRemote call", "Video call with "+name)
 }
 
 func onCallEnd(msg map[string]any) {
@@ -175,8 +174,16 @@ func teardownCall(peer string) {
 	closeVideoWindow()
 	stopAudio()
 	stopPCCapture()
-	guiSetStatus("Online — waiting for viewers…", true)
-	notify("SWRemote call", "Call ended")
+	// v8.9.10: no "Call ended" popup — the status line is the designed
+	// area for this, and it reflects whether viewers remain.
+	viewersMu.Lock()
+	n := len(viewers)
+	viewersMu.Unlock()
+	if n > 0 {
+		guiSetStatus("Viewer connected — sharing screen", true)
+	} else {
+		guiSetStatus("Online — waiting for viewers…", true)
+	}
 	// v8.9.5: tell EVERY viewer the call is over, with who ended it.
 	// Before, only the viewer that pressed End knew — the others sat on a
 	// dead call thinking it had "auto disconnected".
@@ -252,26 +259,40 @@ func handleViewerFrame(jpeg []byte) {
 	callMu.Lock()
 	active, peerCam := callActive, callPeerCam
 	callMu.Unlock()
-	if !active || !peerCam {
+	recMu.Lock()
+	recOn := recActive
+	recMu.Unlock()
+	if !recOn && (!active || !peerCam) {
 		return
 	}
-	// v8.9.6: mute is audio-only — it used to drop video frames too.
-	viewerFrames++
-	if !viewerFrameLogged {
-		viewerFrameLogged = true
-		log("viewer camera: first frame received")
-	} else if viewerFrames%300 == 0 {
-		log("viewer camera: %d frames received", viewerFrames)
+	if active && peerCam {
+		// v8.9.6: mute is audio-only — it used to drop video frames too.
+		viewerFrames++
+		if !viewerFrameLogged {
+			viewerFrameLogged = true
+			log("viewer camera: first frame received")
+		} else if viewerFrames%300 == 0 {
+			log("viewer camera: %d frames received", viewerFrames)
+		}
 	}
 	img, _, err := image.Decode(bytes.NewReader(jpeg))
 	if err != nil {
 		return
 	}
-	videoMu.Lock()
-	videoImg = img
-	videoMu.Unlock()
-	if videoHWND != 0 {
-		pInvalidateRect.Call(videoHWND, 0, 1)
+	if active && peerCam {
+		videoMu.Lock()
+		videoImg = img
+		videoMu.Unlock()
+		if videoHWND != 0 {
+			pInvalidateRect.Call(videoHWND, 0, 1)
+		}
+	}
+	if recOn {
+		// v8.9.10: the recorder composites this frame as the camera PiP —
+		// it works even without a call, from the console's record camera.
+		viewerImgMu.Lock()
+		latestViewerImg = img
+		viewerImgMu.Unlock()
 	}
 }
 
@@ -328,6 +349,14 @@ func openVideoWindow() {
 			uintptr(unsafe.Pointer(u16("Video call — SWRemote"))),
 			0x00CF0000, uintptr(x), uintptr(y), uintptr(ww), uintptr(wh), 0, 0, 0, 0)
 		videoHWND = hwnd
+		// v8.9.10: the video window carries the caller's profile name —
+		// no popup needed to say who is calling.
+		callMu.Lock()
+		peer := callPeerName
+		callMu.Unlock()
+		if peer != "" {
+			pSetWindowTextW.Call(hwnd, uintptr(unsafe.Pointer(u16("Video call — "+peer))))
+		}
 		pShowWindow.Call(hwnd, 1)
 		pUpdateWindow.Call(hwnd)
 		var m [32]byte

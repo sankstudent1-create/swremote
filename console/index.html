@@ -200,6 +200,8 @@
 
   <div class="stage">
     <div id="zoomwrap"><canvas id="screen"></canvas><div id="cursor" class="remote-cursor"></div></div>
+    <canvas id="anno-canvas" class="anno-canvas hidden"></canvas>
+    <input id="anno-text-input" class="anno-text-input hidden" placeholder="Type label…" maxlength="80">
     <div id="sess-status" class="sess-status">Connecting…</div>
     <div id="zoomctl" class="zoomctl">
       <button id="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
@@ -223,6 +225,8 @@
     </div>
     <!-- Streamer recording: your camera, bottom-right over the screen -->
     <video id="stream-cam" class="stream-cam hidden" autoplay playsinline muted></video>
+    <!-- Remote recording camera (sent to the PC as its PiP, no preview) -->
+    <video id="rec-cam-video" class="hidden" autoplay playsinline muted></video>
   </div>
 
   <div id="keybar" class="keybar hidden">
@@ -277,6 +281,41 @@
     <p class="hint pad">Launch opens the app on the PC. Kill stops a running app — unsaved work in it will be lost.</p>
   </aside>
 
+  <aside id="record-panel" class="sheet hidden">
+    <div class="sheet-head"><div class="sheet-grip"></div><b>Record on this PC</b><button class="icon-btn" data-close="record-panel" aria-label="Close"><span class="mi">close</span></button></div>
+    <div class="pad">
+      <p class="hint">The PC records its own screen into <b>Videos\SWRemote</b> as a video file — no editor needed. Compose it like a streamer below, then Start.</p>
+      <label class="rec-row"><input type="checkbox" id="rec-pc-cam" checked> Your camera in the video (picture-in-picture)</label>
+      <div class="rec-group"><span class="rec-label">Camera size</span><div class="seg" id="rec-pip-size">
+        <button type="button" data-v="s">Small</button><button type="button" data-v="m" class="on">Medium</button><button type="button" data-v="l">Large</button>
+      </div></div>
+      <div class="rec-group"><span class="rec-label">Camera corner</span><div class="seg" id="rec-pip-pos">
+        <button type="button" data-v="tl">Top left</button><button type="button" data-v="tr">Top right</button><button type="button" data-v="bl">Bottom left</button><button type="button" data-v="br" class="on">Bottom right</button>
+      </div></div>
+      <div class="rec-group"><span class="rec-label">Camera border</span><div class="seg" id="rec-pip-border">
+        <button type="button" data-v="none">None</button><button type="button" data-v="solid" class="on">Solid</button><button type="button" data-v="glow">Glow</button>
+      </div><input type="color" id="rec-pip-color" value="#7c3aed" title="Border color"></div>
+      <label class="rec-row"><input type="checkbox" id="rec-banner-on"> Banner strip (ad / title text)</label>
+      <input id="rec-banner-text" class="field" placeholder="Banner text — e.g. Sponsored by SWInfoSystems" maxlength="80">
+      <div class="rec-group"><span class="rec-label">Mouse pointer in video</span><div class="seg" id="rec-cur-style">
+        <button type="button" data-v="ring" class="on">Ring</button><button type="button" data-v="arrow">Arrow</button><button type="button" data-v="none">Hidden</button>
+      </div><div class="seg" id="rec-cur-size">
+        <button type="button" data-v="s">Small</button><button type="button" data-v="m" class="on">Medium</button><button type="button" data-v="l">Large</button>
+      </div></div>
+      <label class="rec-row"><input type="checkbox" id="rec-cur-zoom"> Follow-mouse zoom (2× magnifier follows the pointer)</label>
+      <div class="rec-group"><span class="rec-label">Draw on the video (while recording)</span><div class="seg" id="anno-tools">
+        <button type="button" data-v="pen">Pen</button><button type="button" data-v="pencil">Pencil</button><button type="button" data-v="text">Text</button>
+      </div><input type="color" id="anno-color" value="#ff3b30" title="Drawing color"><select id="anno-size"><option value="2">Thin</option><option value="4" selected>Medium</option><option value="8">Thick</option></select><button type="button" id="anno-clear" class="btn">Clear</button></div>
+      <p class="hint">Tap the screen with Pen, Pencil or Text selected to draw — it goes straight into the recorded video.</p>
+      <div class="rec-actions">
+        <button id="rec-pc-start" class="btn btn--volt">Start recording</button>
+        <button id="rec-pc-stop" class="btn" disabled>Stop</button>
+        <button id="rec-pc-download" class="btn hidden">Download video</button>
+      </div>
+      <div id="rec-pc-status" class="hint"></div>
+    </div>
+  </aside>
+
   <div id="quality-pop" class="popover hidden">
     <div class="q-presets">
       <button type="button" data-q="50" data-s="0.7">Realtime</button>
@@ -303,6 +342,8 @@
     <button id="btn-lock" title="Lock PC"><span class="mi t-ico">lock</span><span>Lock PC</span></button>
     <button id="btn-refresh-screen" title="Refresh screen"><span class="mi t-ico">refresh</span><span>Refresh screen</span></button>
     <button id="btn-pcsound" title="PC sound"><span class="mi t-ico">volume_up</span><span>PC sound</span></button>
+    <button id="btn-record-pc" title="Record on PC"><span class="mi t-ico">fiber_manual_record</span><span>Record on PC</span></button>
+    <div class="pop-label">Power</div>
     <button id="btn-restart-agent" title="Restart agent"><span class="mi t-ico">restart_alt</span><span>Restart agent</span></button>
     <button id="btn-restart-pc" title="Restart PC"><span class="mi t-ico">restart_alt</span><span>Restart PC</span></button>
     <button id="btn-shutdown-pc" title="Shut down PC"><span class="mi t-ico">power_settings_new</span><span>Shut down PC</span></button>

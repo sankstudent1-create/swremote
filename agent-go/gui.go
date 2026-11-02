@@ -31,6 +31,10 @@ var (
 	pRegisterClassW     = u32.NewProc("RegisterClassW")
 	pDefWindowProcW     = u32.NewProc("DefWindowProcW")
 	pShowWindow         = u32.NewProc("ShowWindow")
+	pSetFocus           = u32.NewProc("SetFocus")             // v8.9.10: chat input
+	pFlashWindow        = u32.NewProc("FlashWindow")          // v8.9.10: chat attention
+	pGetForegroundWindow = u32.NewProc("GetForegroundWindow") // v8.9.10: chat attention
+	pIsDialogMessage    = u32.NewProc("IsDialogMessageW")     // v8.9.10: Tab + Enter in chat input
 	pUpdateWindow       = u32.NewProc("UpdateWindow")
 	pGetMessageW        = u32.NewProc("GetMessageW")
 	pTranslateMessage   = u32.NewProc("TranslateMessage")
@@ -86,6 +90,10 @@ const (
 	SS_LEFT             = 0x00000000
 	ES_READONLY         = 0x00000800
 	ES_AUTOHSCROLL      = 0x00000080
+	ES_MULTILINE        = 0x00000004 // v8.9.10: chat log
+	ES_AUTOVSCROLL      = 0x00000040 // v8.9.10: chat log
+	WS_VSCROLL          = 0x00200000 // v8.9.10: chat log
+	BS_DEFPUSHBUTTON    = 0x00000001 // v8.9.10: chat Send (Enter key)
 	SW_SHOW             = 5
 	WM_DESTROY          = 2
 	WM_PAINT            = 15
@@ -121,6 +129,8 @@ const (
 	WM_APP_UPDBTN   = WM_APP + 3
 	WM_APP_CAMSTAT  = WM_APP + 4 // v8.9.2: worker-thread camera status
 	WM_APP_META     = WM_APP + 5 // v8.9.2: worker-thread viewers/uptime text
+	WM_APP_CHAT     = WM_APP + 6 // v8.9.10: a chat message arrived — drain into the chat log
+	WM_APP_REC      = WM_APP + 7 // v8.9.10: recording indicator changed
 )
 
 const (
@@ -152,6 +162,11 @@ const (
 	ctlCamVal      = 126
 	ctlFixCam      = 127
 	ctlRepairWin   = 128 // v8.9.0: sfc /scannow + DISM one-click repair
+	ctlChatLbl     = 129 // v8.9.10: chat card label
+	ctlChatLog     = 130 // v8.9.10: read-only chat log (multiline edit)
+	ctlChatInput   = 131 // v8.9.10: chat reply input
+	ctlChatSend    = 132 // v8.9.10: send chat reply
+	ctlRec         = 133 // v8.9.10: recording indicator
 )
 
 type wndClassExW struct {
@@ -223,6 +238,9 @@ type guiState struct {
 	updBtnOn   bool
 	camStatus  string // v8.4.0: one-line camera health from runPrereqCheck
 	viewers    int
+	chatPending []string // v8.9.10: chat lines waiting for the UI thread
+	recText    string   // v8.9.10: recording indicator text ("" = hidden)
+	recShow    bool
 	started    time.Time
 }
 
@@ -341,6 +359,72 @@ func guiSetUpdateBtn(text string, enabled bool) {
 	if gHWND != 0 {
 		pPostMessageW.Call(gHWND, WM_APP_UPDBTN, 0, 0)
 	}
+}
+
+// guiAddChat queues a chat line for the in-window chat card (v8.9.10 —
+// chat no longer pops a MessageBox). Safe from any goroutine.
+func guiAddChat(who, text string) {
+	line := time.Now().Format("15:04") + " " + who + ": " + text
+	gState.mu.Lock()
+	gState.chatPending = append(gState.chatPending, line)
+	gState.mu.Unlock()
+	if gHWND != 0 {
+		pPostMessageW.Call(gHWND, WM_APP_CHAT, 0, 0)
+		// attention cue only when the window is not in front
+		if fg, _, _ := pGetForegroundWindow.Call(); fg != gHWND {
+			pFlashWindow.Call(gHWND, 1)
+		}
+	}
+}
+
+// guiSetRec shows or hides the recording indicator (v8.9.10).
+func guiSetRec(text string, show bool) {
+	gState.mu.Lock()
+	gState.recText, gState.recShow = text, show
+	gState.mu.Unlock()
+	if gHWND != 0 {
+		pPostMessageW.Call(gHWND, WM_APP_REC, 0, 0)
+	}
+}
+
+func drainChat() {
+	gState.mu.Lock()
+	lines := gState.chatPending
+	gState.chatPending = nil
+	gState.mu.Unlock()
+	h, ok := gCtl[ctlChatLog]
+	if !ok || len(lines) == 0 {
+		return
+	}
+	for _, ln := range lines {
+		b, _ := windows.UTF16FromString(ln + "\r\n")
+		pSendMessageW.Call(h, 0x00B1 /*EM_SETSEL*/, 0xFFFFFFFF, 0xFFFFFFFF)
+		pSendMessageW.Call(h, 0x00C2 /*EM_REPLACESEL*/, 0, uintptr(unsafe.Pointer(&b[0])))
+	}
+}
+
+func sendChatFromInput() {
+	h, ok := gCtl[ctlChatInput]
+	if !ok {
+		return
+	}
+	n, _, _ := pSendMessageW.Call(h, 0x000E /*WM_GETTEXTLENGTH*/, 0, 0)
+	if n <= 0 {
+		return
+	}
+	buf := make([]uint16, n+1)
+	pSendMessageW.Call(h, 0x000D /*WM_GETTEXT*/, uintptr(n+1), uintptr(unsafe.Pointer(&buf[0])))
+	text := strings.TrimSpace(windows.UTF16ToString(buf))
+	if text == "" {
+		return
+	}
+	if len(text) > 200 {
+		text = text[:200]
+	}
+	sendWSJSON(map[string]any{"t": "chat", "text": text})
+	guiAddChat("You", text)
+	pSetWindowTextW.Call(h, uintptr(unsafe.Pointer(u16(""))))
+	pSetFocus.Call(h)
 }
 
 func applyStatus() {
@@ -604,6 +688,22 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 	case WM_APP_META:
 		refreshMeta()
 		return 0
+	case WM_APP_CHAT:
+		drainChat()
+		return 0
+	case WM_APP_REC:
+		gState.mu.Lock()
+		t, show := gState.recText, gState.recShow
+		gState.mu.Unlock()
+		setText(ctlRec, t)
+		if h, ok := gCtl[ctlRec]; ok {
+			var vis uintptr = 0
+			if show {
+				vis = SW_SHOW
+			}
+			pShowWindow.Call(h, vis)
+		}
+		return 0
 	case WM_TIMER:
 		heartbeatTick() // v8.9.4: the timer ONLY ticks the heartbeat now.
 		// The per-second label refresh goes out as its own message instead
@@ -689,6 +789,8 @@ var updateRunning atomic.Bool
 
 func onClick(id int) {
 	switch id {
+	case ctlChatSend: // v8.9.10: reply to viewers from the chat card
+		sendChatFromInput()
 	case ctlCopyID:
 		copyToClipboard(cfg.DeviceID)
 		guiSetStatus("ID copied to clipboard.", true)
@@ -798,6 +900,13 @@ func refreshMeta() {
 		vw = fmt.Sprintf("%d viewers", v)
 	}
 	setText(ctlMeta, vw+"   •   "+fmtUptime(time.Since(st)))
+	// v8.9.10: the VIEWERS label carries the true count — only 2 profile
+	// rows fit in the card, so the count is the honest total.
+	lbl := "VIEWERS"
+	if v > 0 {
+		lbl = fmt.Sprintf("VIEWERS (%d)", v)
+	}
+	setText(ctlViewLbl, lbl)
 }
 
 func setAutoRun(on bool) {
@@ -892,7 +1001,7 @@ func runGUI() {
 		uintptr(unsafe.Pointer(clsName)),
 		uintptr(unsafe.Pointer(u16("SWRemote"))),
 		WS_OVERLAPPEDWINDOW&^0x00040000&^0x00080000, // no maximize box, no resize border
-		200, 80, 876, 640,
+		200, 80, 876, 780,
 		0, 0, 0, 0)
 	if hwnd == 0 {
 		return
@@ -925,16 +1034,24 @@ func runGUI() {
 	mkCtl("STATIC", "CAMERA", 0, 454, 492, 200, 16, ctlCamLbl, gFonts["lbl"])
 	mkCtl("STATIC", "checking…", SS_LEFT, 540, 492, 280, 16, ctlCamVal, gFonts["small"])
 	// bottom bar
-	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON|BS_FLAT, 20, 550, 150, 38, ctlUpdate, gFonts["norm"])
-	mkCtl("BUTTON", "Fix camera", BS_PUSHBUTTON|BS_FLAT, 178, 550, 130, 38, ctlFixCam, gFonts["norm"])
-	mkCtl("BUTTON", "Repair Windows", BS_PUSHBUTTON|BS_FLAT, 316, 550, 140, 38, ctlRepairWin, gFonts["norm"])
-	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 434, 558, 180, 24, ctlAutoRun, gFonts["norm"])
-	mkCtl("msctls_progress32", "", 0, 620, 562, 92, 14, ctlProg, 0)
+	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON|BS_FLAT, 20, 700, 150, 38, ctlUpdate, gFonts["norm"])
+	mkCtl("BUTTON", "Fix camera", BS_PUSHBUTTON|BS_FLAT, 178, 700, 130, 38, ctlFixCam, gFonts["norm"])
+	mkCtl("BUTTON", "Repair Windows", BS_PUSHBUTTON|BS_FLAT, 316, 700, 140, 38, ctlRepairWin, gFonts["norm"])
+	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 434, 708, 180, 24, ctlAutoRun, gFonts["norm"])
+	mkCtl("msctls_progress32", "", 0, 620, 712, 92, 14, ctlProg, 0)
 	pSendMessageW.Call(gCtl[ctlProg], PBM_SETRANGE32, 0, 100)
 	pShowWindow.Call(gCtl[ctlProg], 0)
-	mkCtl("BUTTON", "Quit", BS_PUSHBUTTON|BS_FLAT, 720, 550, 120, 38, ctlQuit, gFonts["norm"])
+	mkCtl("BUTTON", "Quit", BS_PUSHBUTTON|BS_FLAT, 720, 700, 120, 38, ctlQuit, gFonts["norm"])
+	// v8.9.10: chat card — messages from viewers land here, never in a
+	// popup; the PC user replies from the input box (Enter = Send).
+	mkCtl("STATIC", "CHAT — messages from viewers", 0, 20, 528, 300, 18, ctlChatLbl, gFonts["lbl"])
+	mkCtl("EDIT", "", WS_BORDER|ES_MULTILINE|ES_READONLY|WS_VSCROLL|ES_AUTOVSCROLL, 20, 550, 640, 100, ctlChatLog, gFonts["norm"])
+	mkCtl("EDIT", "", WS_BORDER|ES_AUTOHSCROLL, 20, 658, 540, 28, ctlChatInput, gFonts["norm"])
+	mkCtl("BUTTON", "Send", BS_DEFPUSHBUTTON|BS_FLAT, 570, 658, 90, 28, ctlChatSend, gFonts["norm"])
 
-	// gray labels are colored via WM_CTLCOLORSTATIC (grayLabels set)
+	// v8.9.10: recording indicator (hidden until a recording runs)
+	mkCtl("STATIC", "", SS_LEFT, 680, 658, 176, 28, ctlRec, gFonts["norm"])
+	pShowWindow.Call(gCtl[ctlRec], 0)
 	if getAutoRun() {
 		pSendMessageW.Call(gCtl[ctlAutoRun], BM_SETCHECK, BST_CHECKED, 0)
 	}
@@ -959,8 +1076,12 @@ func runGUI() {
 		if int32(r) <= 0 {
 			break
 		}
-		pTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
-		pDispatchMessageW.Call(uintptr(unsafe.Pointer(&m)))
+		// v8.9.10: dialog messages give Tab navigation + Enter = default
+		// button (chat Send) without a dialog template.
+		if d, _, _ := pIsDialogMessage.Call(hwnd, uintptr(unsafe.Pointer(&m))); d == 0 {
+			pTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
+			pDispatchMessageW.Call(uintptr(unsafe.Pointer(&m)))
+		}
 		heartbeatTick() // v8.9.4: the pump itself proves the GUI thread alive
 	}
 }

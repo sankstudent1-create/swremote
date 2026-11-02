@@ -502,7 +502,7 @@ func handleFileChunk(data []byte) {
 	if rec.left <= 0 {
 		rec.f.Close()
 		fmt.Println("File saved:", rec.path)
-		notify("SWRemote", "File received: "+filepath.Base(rec.path))
+		guiSetStatus("File received: "+filepath.Base(rec.path), true)
 		delete(incoming, id)
 	}
 }
@@ -820,7 +820,7 @@ func runSession(cfg *Config) error {
 			if len(text) > 200 {
 				text = text[:200]
 			}
-			notify("SWRemote message", text)
+			guiAddChat(viewerNameForChat(), text)
 		case "apps-list":
 			sendWSJSON(map[string]any{"t": "apps", "apps": listApps()})
 		case "app-launch":
@@ -858,13 +858,59 @@ func runSession(cfg *Config) error {
 			}
 			setLoopback(on)
 			sendWSJSON(map[string]any{"t": "pc-audio-result", "on": on})
+		case "record-start":
+			// v8.9.10: viewer starts a composed recording on this PC
+			err := startRecording(parseSettings(msg))
+			sendWSJSON(map[string]any{"t": "record-started", "ok": err == nil, "error": appErr(err)})
+		case "record-stop":
+			stopRecording()
+		case "record-download":
+			downloadRecording(getStr(msg, "file"))
+		case "annotate":
+			// v8.9.10: pen/pencil stroke from the console overlay
+			st := recStroke{kind: getStr(msg, "tool"), color: getStr(msg, "color")}
+			if f, ok := msg["size"].(float64); ok {
+				st.size = int(f)
+			}
+			if arr, ok := msg["points"].([]any); ok {
+				for _, p := range arr {
+					if pair, ok := p.([]any); ok && len(pair) == 2 {
+						x, _ := pair[0].(float64)
+						y, _ := pair[1].(float64)
+						st.pts = append(st.pts, [2]float64{x, y})
+					}
+				}
+			}
+			if st.kind != "pen" && st.kind != "pencil" {
+				break
+			}
+			strokesMu.Lock()
+			recStrokes = append(recStrokes, st)
+			strokesMu.Unlock()
+		case "annotate-text":
+			st := recStroke{kind: "text", color: getStr(msg, "color"), text: getStr(msg, "text")}
+			if f, ok := msg["size"].(float64); ok {
+				st.size = int(f)
+			}
+			if f, ok := msg["x"].(float64); ok {
+				st.x = f
+			}
+			if f, ok := msg["y"].(float64); ok {
+				st.y = f
+			}
+			strokesMu.Lock()
+			recStrokes = append(recStrokes, st)
+			strokesMu.Unlock()
+		case "annotate-clear":
+			strokesMu.Lock()
+			recStrokes = nil
+			strokesMu.Unlock()
 		case "file_meta":
 			handleFileMeta(msg)
 		case "lock":
 			fmt.Println("Remote lock requested")
 			lockWorkstation()
 		case "viewer_joined":
-			notify("SWRemote", "Someone connected to this PC")
 			needKeyframe.Store(true) // new viewer gets a full frame immediately
 			if n, ok := msg["viewers"].(float64); ok {
 				guiSetViewers(int(n))

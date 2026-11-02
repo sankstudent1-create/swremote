@@ -757,6 +757,8 @@ function onWsMsg(ev) {
     if (m.apps) renderApps(m.apps); // cached list from the relay database
     lastFrameAt = Date.now(); staleKeySent = false;
     $("sess-stale").classList.add("hidden");
+    $("anno-canvas").classList.remove("hidden");
+    if (typeof positionAnno === "function") positionAnno();
     ws.send(JSON.stringify({ t: "keyframe" })); // ask for a full frame now
     startLatLoop(); // v10.4: live latency pill (needs agent v8.9.4 pong)
     if (wasReconnect && frameW) toast("Reconnected ⚡");
@@ -773,6 +775,24 @@ function onWsMsg(ev) {
   else if (m.t === "restart-agent-result") toast("Agent restarting — session will reconnect.");
   else if (m.t === "shutdown-result") toast(m.ok ? "Shutting down…" : "Could not shut down: " + (m.error || ""));
   else if (m.t === "reboot-result") toast(m.ok ? "Restarting PC…" : "Could not restart: " + (m.error || ""));
+  else if (m.t === "record-started") {
+    if (m.ok) {
+      recPcOn = true; annoStrokes = []; redrawAnno();
+      $("rec-pc-start").disabled = true; $("rec-pc-stop").disabled = false;
+      $("rec-pc-status").textContent = "Recording on the PC…";
+      if ($("rec-pc-cam").checked) startRecCam();
+      toast("Recording started on the PC.");
+    } else toast("Could not start recording: " + (m.error || ""));
+  }
+  else if (m.t === "record-done") {
+    recPcOn = false; stopRecCam(); setAnnoMode("");
+    $("rec-pc-start").disabled = false; $("rec-pc-stop").disabled = true;
+    recPcFile = m.file || "";
+    $("rec-pc-download").classList.toggle("hidden", !recPcFile);
+    $("rec-pc-status").textContent = "Saved on the PC: " + (m.file || "") + " (" + (m.seconds || 0) + "s, " + (m.frames || 0) + " frames).";
+    toast("Recording saved on the PC — tap Download to fetch it.");
+  }
+  else if (m.t === "record-download-result") toast("Download failed: " + (m.error || ""));
   else if (m.t === "cursor") moveRemoteCursor(m.x, m.y);
   else if (m.t === "pong" && m.ts) { // v10.4: live session latency
     const ms = Date.now() - m.ts, el = $("sess-lat");
@@ -824,6 +844,7 @@ function applyZoomSize() {
   if (!frameW || !fitScale) return;
   canvas.style.width = Math.max(1, Math.floor(frameW * fitScale * zoom)) + "px";
   canvas.style.height = Math.max(1, Math.floor(frameH * fitScale * zoom)) + "px";
+  if (typeof positionAnno === "function") positionAnno();
 }
 function fitCanvas(force) {
   const stage = stageEl();
@@ -1449,6 +1470,172 @@ setInterval(() => {
   } else if (!stale) staleKeySent = false;
 }, 1000);
 
+/* ---------- record on PC + annotations (v10.10) ---------- */
+let recPcOn = false, recPcFile = "";
+let recCamStream = null, recCamTimer = 0, recCamCanvas = null;
+let annoMode = "", annoStrokes = [], annoDrawing = null;
+
+function sendCtrl(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+function segVal(id) { const b = document.querySelector("#" + id + " button.on"); return b ? b.dataset.v : ""; }
+function segInit(id) {
+  $(id).querySelectorAll("button").forEach(b => b.onclick = () => {
+    $(id).querySelectorAll("button").forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+  });
+}
+["rec-pip-size", "rec-pip-pos", "rec-pip-border", "rec-cur-style", "rec-cur-size"].forEach(segInit);
+
+function positionAnno() {
+  const cv = $("anno-canvas"), scr = $("screen"), stage = stageEl();
+  if (!cv || !scr || !stage) return;
+  const r = scr.getBoundingClientRect(), s = stage.getBoundingClientRect();
+  cv.style.left = (r.left - s.left + stage.scrollLeft) + "px";
+  cv.style.top = (r.top - s.top + stage.scrollTop) + "px";
+  cv.style.width = r.width + "px";
+  cv.style.height = r.height + "px";
+  const w = Math.round(r.width), h = Math.round(r.height);
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; redrawAnno(); }
+}
+
+function redrawAnno() {
+  const cv = $("anno-canvas");
+  if (!cv) return;
+  const ctx = cv.getContext("2d");
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  const draw = (st) => {
+    if (st.kind === "text") {
+      ctx.font = "700 " + (st.size || 18) + "px Segoe UI, system-ui";
+      ctx.fillStyle = st.color;
+      ctx.fillText(st.text, st.x * cv.width, st.y * cv.height);
+      return;
+    }
+    ctx.strokeStyle = st.color;
+    ctx.lineWidth = st.kind === "pencil" ? 2 : (st.size || 4);
+    ctx.globalAlpha = st.kind === "pencil" ? 0.6 : 1;
+    ctx.beginPath();
+    st.points.forEach((p, i) => {
+      const x = p[0] * cv.width, y = p[1] * cv.height;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  };
+  annoStrokes.forEach(draw);
+  if (annoDrawing) draw(annoDrawing);
+}
+
+function annoPos(e) {
+  const r = $("anno-canvas").getBoundingClientRect();
+  return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
+}
+function setAnnoMode(v) {
+  if (v && !recPcOn) { toast("Start recording first, then draw."); return; }
+  annoMode = v;
+  document.querySelectorAll("#anno-tools button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
+  $("anno-canvas").classList.toggle("live", !!v);
+  positionAnno();
+}
+document.querySelectorAll("#anno-tools button").forEach(b => b.onclick = () => {
+  const cur = b.classList.contains("on");
+  setAnnoMode(cur ? "" : b.dataset.v);
+});
+$("anno-clear").onclick = () => {
+  annoStrokes = []; annoDrawing = null; redrawAnno();
+  sendCtrl({ t: "annotate-clear" });
+};
+const annoCv = $("anno-canvas");
+annoCv.addEventListener("pointerdown", (e) => {
+  if (!recPcOn || !annoMode) return;
+  const [x, y] = annoPos(e);
+  if (annoMode === "text") { showAnnoText(x, y); return; }
+  annoDrawing = { kind: annoMode, color: $("anno-color").value, size: +$("anno-size").value, points: [[x, y]] };
+  try { annoCv.setPointerCapture(e.pointerId); } catch {}
+});
+annoCv.addEventListener("pointermove", (e) => {
+  if (!annoDrawing) return;
+  annoDrawing.points.push(annoPos(e));
+  redrawAnno();
+});
+annoCv.addEventListener("pointerup", () => {
+  if (!annoDrawing) return;
+  annoStrokes.push(annoDrawing);
+  sendCtrl({ t: "annotate", tool: annoDrawing.kind, color: annoDrawing.color, size: annoDrawing.size, points: annoDrawing.points });
+  annoDrawing = null;
+  redrawAnno();
+});
+function showAnnoText(x, y) {
+  const inp = $("anno-text-input"), scr = $("screen"), stage = stageEl();
+  const r = scr.getBoundingClientRect(), s = stage.getBoundingClientRect();
+  inp.style.left = (r.left - s.left + stage.scrollLeft + x * r.width) + "px";
+  inp.style.top = (r.top - s.top + stage.scrollTop + y * r.height) + "px";
+  inp.value = "";
+  inp.classList.remove("hidden");
+  inp.focus();
+  const done = () => {
+    const text = inp.value.trim();
+    inp.classList.add("hidden");
+    if (!text) return;
+    const st = { kind: "text", color: $("anno-color").value, size: 18, text, x, y };
+    annoStrokes.push(st);
+    redrawAnno();
+    sendCtrl({ t: "annotate-text", x, y, text, color: st.color, size: 18 });
+  };
+  inp.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); done(); } if (e.key === "Escape") inp.classList.add("hidden"); };
+  inp.onblur = done;
+}
+
+async function startRecCam() {
+  try {
+    recCamStream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: false });
+    const v = $("rec-cam-video");
+    v.srcObject = recCamStream;
+    await v.play().catch(() => {});
+    recCamCanvas = recCamCanvas || document.createElement("canvas");
+    recCamCanvas.width = 320; recCamCanvas.height = 240;
+    const ctx = recCamCanvas.getContext("2d");
+    recCamTimer = setInterval(() => {
+      if (!recPcOn || !recCamStream) return;
+      try {
+        ctx.drawImage(v, 0, 0, 320, 240);
+        recCamCanvas.toBlob(async (b) => {
+          if (!b || !recPcOn) return;
+          const ab = new Uint8Array(await b.arrayBuffer());
+          const pkt = new Uint8Array(1 + ab.length);
+          pkt[0] = 0x04; pkt.set(ab, 1);
+          if (ws && ws.readyState === 1) ws.send(pkt);
+        }, "image/jpeg", 0.7);
+      } catch {}
+    }, 120);
+  } catch { toast("Camera unavailable — recording continues without picture-in-picture."); }
+}
+function stopRecCam() {
+  if (recCamTimer) clearInterval(recCamTimer);
+  recCamTimer = 0;
+  if (recCamStream) { recCamStream.getTracks().forEach(t => t.stop()); recCamStream = null; }
+  const v = $("rec-cam-video");
+  if (v) v.srcObject = null;
+}
+
+$("rec-pc-start").onclick = () => {
+  if (!sessionLive || !ws || ws.readyState !== 1) { toast("Connect to the PC first."); return; }
+  sendCtrl({
+    t: "record-start",
+    pip: { on: $("rec-pc-cam").checked, size: segVal("rec-pip-size"), pos: segVal("rec-pip-pos"), border: segVal("rec-pip-border"), color: $("rec-pip-color").value },
+    banner: { on: $("rec-banner-on").checked, text: $("rec-banner-text").value.trim() },
+    cursor: { size: segVal("rec-cur-size"), style: segVal("rec-cur-style"), zoom: $("rec-cur-zoom").checked },
+  });
+};
+$("rec-pc-stop").onclick = () => {
+  sendCtrl({ t: "record-stop" });
+  stopRecCam();
+  $("rec-pc-stop").disabled = true;
+  $("rec-pc-status").textContent = "Stopping…";
+};
+$("rec-pc-download").onclick = () => {
+  if (recPcFile) sendCtrl({ t: "record-download", file: recPcFile });
+};
+
 /* ---------- files: console -> agent ---------- */
 let pendingFile = null;
 $("btn-files").onclick = () => toggleDrawer("files-panel");
@@ -1528,6 +1715,7 @@ $("btn-pcsound").onclick = () => {
 };
 $("btn-restart-agent").onclick = () => { if (ws && confirm("Restart the agent on this PC? It will reconnect in a few seconds.")) ws.send(JSON.stringify({ t: "restart-agent" })); };
 $("btn-restart-pc").onclick = () => { if (ws && confirm("Restart this PC? It will come back to the login screen.")) ws.send(JSON.stringify({ t: "reboot" })); };
+$("btn-record-pc").onclick = () => { toggleDrawer("record-panel"); };
 $("btn-shutdown-pc").onclick = () => { if (ws && confirm("Shut down this PC? It will stay off until someone powers it on.")) ws.send(JSON.stringify({ t: "shutdown" })); };
 
 /* ---------- session latency (v10.4, needs agent v8.9.4 pong) ---------- */

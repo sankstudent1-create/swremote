@@ -39,6 +39,19 @@ func avatarDir() string {
 	return p
 }
 
+// viewerNameForChat returns the name shown in the chat card for an
+// incoming message (v8.9.10). With one viewer it is their profile name;
+// with several, or none known, plain "Viewer" — the relay does not
+// attach a sender to forwarded chat.
+func viewerNameForChat() string {
+	viewersMu.Lock()
+	defer viewersMu.Unlock()
+	if len(viewers) == 1 && viewers[0].name != "" {
+		return viewers[0].name
+	}
+	return "Viewer"
+}
+
 // setViewers replaces the viewer list (from relay {"t":"viewers"}), downloads
 // missing avatars in the background, then repaints the window.
 func setViewers(list []viewerInfo) {
