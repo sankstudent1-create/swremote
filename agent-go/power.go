@@ -1,4 +1,4 @@
-// power.go — remote PC shutdown and reboot (v8.9.9).
+// power.go — remote agent restart, PC shutdown, reboot, sleep.
 //
 // Restart-agent reuses the existing watchdog restartSelf (releases the
 // single-instance mutex, starts a fresh copy, exits). Shutdown/reboot
@@ -21,7 +21,15 @@ var (
 	pLookupPrivValue   = windows.NewLazySystemDLL("advapi32.dll").NewProc("LookupPrivilegeValueW")
 	pAdjustPriv        = windows.NewLazySystemDLL("advapi32.dll").NewProc("AdjustTokenPrivileges")
 	pExitWindowsEx     = windows.NewLazySystemDLL("user32.dll").NewProc("ExitWindowsEx")
+	pSetSuspendState   = windows.NewLazySystemDLL("powrprof.dll").NewProc("SetSuspendState")
 )
+
+// doSleep suspends the PC (S3 sleep, not hibernate). It needs no
+// privilege, unlike shutdown/reboot. The session dies with the sleep;
+// on wake the agent resumes and its reconnect logic re-registers.
+func doSleep() {
+	pSetSuspendState.Call(0, 0, 0)
+}
 
 // enableShutdownPrivilege turns on SeShutdownPrivilege for this process.
 // It fails fast (before any action), so the caller can report the error

@@ -775,6 +775,7 @@ function onWsMsg(ev) {
   else if (m.t === "restart-agent-result") toast("Agent restarting — session will reconnect.");
   else if (m.t === "shutdown-result") toast(m.ok ? "Shutting down…" : "Could not shut down: " + (m.error || ""));
   else if (m.t === "reboot-result") toast(m.ok ? "Restarting PC…" : "Could not restart: " + (m.error || ""));
+  else if (m.t === "sleep-result") toast(m.ok ? "PC going to sleep…" : "Could not sleep.");
   else if (m.t === "record-started") {
     if (m.ok) {
       recPcOn = true; annoStrokes = []; redrawAnno();
@@ -1045,7 +1046,11 @@ function rel(e) {
 }
 function sendInput(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: "input", ...o })); }
 
-let touchState = null, lastTap = null, longPressTimer = null;
+let touchState = null, lastTap = null, longPressTimer = null, pendingTap = null, rightClickNext = false;
+// v8.9.11: a pending single-click is held 300ms so a second tap can
+// replace it with a double-click — sending the single immediately AND
+// then a double was the "one click triggers another click" bug.
+function cancelPendingTap() { if (pendingTap) { clearTimeout(pendingTap.timer); pendingTap = null; } }
 function bindCanvasInput() {
   canvas.onpointerdown = (e) => {
     if (gestureActive) return;
@@ -1057,6 +1062,7 @@ function bindCanvasInput() {
       clearTimeout(longPressTimer);
       longPressTimer = setTimeout(() => {
         if (touchState && !touchState.moved && !touchState.downSent) {
+          cancelPendingTap();
           touchState.longPressed = true;
           sendInput({ k: "move", ...rel({ clientX: touchState.x, clientY: touchState.y }) });
           sendInput({ k: "down", b: "right" });
@@ -1075,7 +1081,7 @@ function bindCanvasInput() {
       touchState.moved = true;
       clearTimeout(longPressTimer);
       // v10.8: moving with the finger down starts a real drag
-      if (!touchState.downSent) { sendInput({ k: "move", ...rel(e) }); sendInput({ k: "down", b: "left" }); touchState.downSent = true; }
+      if (!touchState.downSent) { sendInput({ k: "move", ...rel(e) }); sendInput({ k: "down", b: "left" }); touchState.downSent = true; cancelPendingTap(); }
     }
     const now = performance.now();
     if (now - lastMove < 40) return;
@@ -1094,18 +1100,31 @@ function bindCanvasInput() {
         sendInput({ k: "move", ...p });
         sendInput({ k: "up", b: "left" });
       } else if (!touchState.moved && dt < 400) {
-        // tap = click; a second tap within 300ms = double-click
+        // tap: a held-back single click, a double-click, or an armed
+        // right-click — exactly one of them, never single + double.
         const now = Date.now();
         sendInput({ k: "move", ...p });
-        if (lastTap && now - lastTap.t < 300 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 24) {
+        if (rightClickNext) {
+          sendInput({ k: "down", b: "right" });
+          sendInput({ k: "up", b: "right" });
+          rightClickNext = false;
+          $("btn-rclick").classList.remove("on");
+          lastTap = null;
+        } else if (pendingTap && now - pendingTap.t < 300 && Math.hypot(e.clientX - pendingTap.x, e.clientY - pendingTap.y) < 24) {
+          clearTimeout(pendingTap.timer);
+          pendingTap = null;
           sendInput({ k: "down", b: "left" });
           sendInput({ k: "up", b: "left" });
           sendInput({ k: "down", b: "left" });
           sendInput({ k: "up", b: "left" });
           lastTap = null;
         } else {
-          sendInput({ k: "down", b: "left" });
-          sendInput({ k: "up", b: "left" });
+          const tx = e.clientX, ty = e.clientY;
+          pendingTap = { t: now, x: tx, y: ty, timer: setTimeout(() => {
+            pendingTap = null;
+            sendInput({ k: "down", b: "left" });
+            sendInput({ k: "up", b: "left" });
+          }, 300) };
           lastTap = { t: now, x: e.clientX, y: e.clientY };
         }
       }
@@ -1118,6 +1137,7 @@ function bindCanvasInput() {
   };
   canvas.onpointercancel = () => {
     clearTimeout(longPressTimer);
+    cancelPendingTap();
     if (touchState && touchState.downSent) sendInput({ k: "up", b: "left" });
     touchState = null;
   };
@@ -1307,7 +1327,7 @@ $("m-cam").onclick = () => {
   $("meeting-local-video").style.visibility = callCamOn ? "visible" : "hidden";
   callSend({ t: "av-state", cam: callCamOn, mic: callMicOn });
 };
-$("m-chat").onclick = () => toggleDrawer("chat-panel");
+$("m-chat").onclick = () => { toggleDrawer("chat-panel"); resetChatBadge(); };
 $("m-pc-mic").onclick = () => {
   // owner viewer toggles the PC's mic
   pcMicOn = !pcMicOn;
@@ -1392,19 +1412,35 @@ function showPCVideo(jpeg) {
   }
 })();
 /* ---------- chat ---------- */
-$("btn-chat").onclick = () => toggleDrawer("chat-panel");
+$("btn-chat").onclick = () => { toggleDrawer("chat-panel"); resetChatBadge(); };
 document.querySelectorAll("[data-close]").forEach((b) => b.onclick = () => $(b.dataset.close).classList.add("hidden"));
 function toggleDrawer(id) {
   const el = $(id), wasHidden = el.classList.contains("hidden");
   document.querySelectorAll(".sheet").forEach((d) => d.classList.add("hidden"));
   if (wasHidden) el.classList.remove("hidden");
 }
+let chatUnread = 0;
 function addChat(text, me) {
+  const log = $("chat-log");
   const div = document.createElement("div");
   div.className = "chat-msg " + (me ? "me" : "them");
-  div.textContent = text;
-  $("chat-log").appendChild(div);
-  $("chat-log").scrollTop = 1e6;
+  const meta = document.createElement("span");
+  meta.className = "chat-meta";
+  meta.textContent = (me ? "You" : "PC") + " • " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  div.appendChild(meta);
+  div.appendChild(document.createTextNode(text));
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+  if (!me && $("chat-panel").classList.contains("hidden")) {
+    chatUnread++;
+    const b = $("chat-badge");
+    b.textContent = chatUnread > 9 ? "9+" : String(chatUnread);
+    b.classList.remove("hidden");
+  }
+}
+function resetChatBadge() {
+  chatUnread = 0;
+  $("chat-badge").classList.add("hidden");
 }
 $("chat-send").onclick = sendChat;
 $("chat-text").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
@@ -1414,6 +1450,7 @@ function sendChat() {
   ws.send(JSON.stringify({ t: "chat", text: t }));
   addChat(t, true);
   $("chat-text").value = "";
+  $("chat-text").focus();
 }
 
 /* ---------- apps: list / launch / kill (v10.8) ---------- */
@@ -1715,6 +1752,12 @@ $("btn-pcsound").onclick = () => {
 };
 $("btn-restart-agent").onclick = () => { if (ws && confirm("Restart the agent on this PC? It will reconnect in a few seconds.")) ws.send(JSON.stringify({ t: "restart-agent" })); };
 $("btn-restart-pc").onclick = () => { if (ws && confirm("Restart this PC? It will come back to the login screen.")) ws.send(JSON.stringify({ t: "reboot" })); };
+$("btn-sleep-pc").onclick = () => { if (ws && confirm("Put this PC to sleep? Wake it with the power button or keyboard.")) ws.send(JSON.stringify({ t: "sleep" })); };
+$("btn-rclick").onclick = () => {
+  rightClickNext = !rightClickNext;
+  $("btn-rclick").classList.toggle("on", rightClickNext);
+  toast(rightClickNext ? "Next tap will right-click." : "Right-click off.");
+};
 $("btn-record-pc").onclick = () => { toggleDrawer("record-panel"); };
 $("btn-shutdown-pc").onclick = () => { if (ws && confirm("Shut down this PC? It will stay off until someone powers it on.")) ws.send(JSON.stringify({ t: "shutdown" })); };
 

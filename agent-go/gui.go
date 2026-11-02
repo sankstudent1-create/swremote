@@ -3,6 +3,7 @@ package main
 
 import (
 	_ "embed"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"strings"
@@ -31,6 +32,7 @@ var (
 	pRegisterClassW     = u32.NewProc("RegisterClassW")
 	pDefWindowProcW     = u32.NewProc("DefWindowProcW")
 	pShowWindow         = u32.NewProc("ShowWindow")
+	pGetClientRect      = u32.NewProc("GetClientRect")   // v8.9.11: paint to the real client size
 	pSetFocus           = u32.NewProc("SetFocus")             // v8.9.10: chat input
 	pFlashWindow        = u32.NewProc("FlashWindow")          // v8.9.10: chat attention
 	pGetForegroundWindow = u32.NewProc("GetForegroundWindow") // v8.9.10: chat attention
@@ -248,6 +250,12 @@ var (
 	gHWND    uintptr
 	gState   = &guiState{statusText: "Starting…", progress: -1, updBtnText: "Check for Updates", updBtnOn: true, started: time.Now()}
 	gCtl     = map[int]uintptr{}
+	// v8.9.11: adaptive layout — compact when the screen is short, and
+	// the chat card rect the paint handler draws behind the chat controls.
+	gCompact   bool
+	gChatRich  bool
+	gChatCardT int32
+	gChatCardB int32
 	gWhiteBr uintptr
 	gBgBr    uintptr
 	gBlueBr  uintptr
@@ -397,10 +405,65 @@ func drainChat() {
 		return
 	}
 	for _, ln := range lines {
-		b, _ := windows.UTF16FromString(ln + "\r\n")
-		pSendMessageW.Call(h, 0x00B1 /*EM_SETSEL*/, 0xFFFFFFFF, 0xFFFFFFFF)
-		pSendMessageW.Call(h, 0x00C2 /*EM_REPLACESEL*/, 0, uintptr(unsafe.Pointer(&b[0])))
+		if gChatRich {
+			appendChatRich(h, ln)
+		} else {
+			b, _ := windows.UTF16FromString(ln + "\r\n")
+			pSendMessageW.Call(h, 0x00B1 /*EM_SETSEL*/, 0xFFFFFFFF, 0xFFFFFFFF)
+			pSendMessageW.Call(h, 0x00C2 /*EM_REPLACESEL*/, 0, uintptr(unsafe.Pointer(&b[0])))
+		}
 	}
+}
+
+// mkChatLog creates the chat log as a RichEdit control when available
+// (v8.9.11: colored names and times, like a modern chat app) and falls
+// back to a plain read-only edit on systems without Msftedit.
+func mkChatLog(x, y, w, h int32) {
+	if _, err := windows.LoadLibrary("Msftedit.dll"); err == nil {
+		hwnd, _, _ := pCreateWindowExW.Call(0,
+			uintptr(unsafe.Pointer(u16("RICHEDIT50W"))),
+			uintptr(unsafe.Pointer(u16(""))),
+			WS_CHILD|WS_VISIBLE|WS_BORDER|ES_MULTILINE|ES_READONLY|WS_VSCROLL|ES_AUTOVSCROLL,
+			uintptr(x), uintptr(y), uintptr(w), uintptr(h),
+			gHWND, uintptr(ctlChatLog), 0, 0)
+		if hwnd != 0 {
+			pSendMessageW.Call(hwnd, 48 /*WM_SETFONT*/, gFonts["norm"], 1)
+			gCtl[ctlChatLog] = hwnd
+			gChatRich = true
+			return
+		}
+	}
+	mkCtl("EDIT", "", WS_BORDER|ES_MULTILINE|ES_READONLY|WS_VSCROLL|ES_AUTOVSCROLL, x, y, w, h, ctlChatLog, gFonts["norm"])
+}
+
+func appendRichPiece(h uintptr, s string, rgb uint32, bold bool) {
+	var cf [60]byte
+	binary.LittleEndian.PutUint32(cf[0:], 60)
+	binary.LittleEndian.PutUint32(cf[4:], 0x40000000|0x00000001) // CFM_COLOR|CFM_BOLD
+	if bold {
+		binary.LittleEndian.PutUint32(cf[8:], 1) // CFE_BOLD
+	}
+	binary.LittleEndian.PutUint32(cf[20:], rgb) // crTextColor
+	pSendMessageW.Call(h, 0x00B1 /*EM_SETSEL*/, 0xFFFFFFFF, 0xFFFFFFFF)
+	pSendMessageW.Call(h, 0x0444 /*EM_SETCHARFORMAT*/, 0x0001 /*SCF_SELECTION*/, uintptr(unsafe.Pointer(&cf[0])))
+	b, _ := windows.UTF16FromString(s)
+	pSendMessageW.Call(h, 0x00C2 /*EM_REPLACESEL*/, 0, uintptr(unsafe.Pointer(&b[0])))
+}
+
+// appendChatRich renders one "HH:MM Name: text" line as gray time +
+// violet bold name + dark text.
+func appendChatRich(h uintptr, line string) {
+	timePart, rest := line, ""
+	if len(line) > 6 {
+		timePart, rest = line[:5], line[6:]
+	}
+	name, text := rest, ""
+	if i := strings.Index(rest, ": "); i >= 0 {
+		name, text = rest[:i], rest[i+2:]
+	}
+	appendRichPiece(h, timePart+" ", 0x808080, false)
+	appendRichPiece(h, name+": ", 0x7C3AED, true)
+	appendRichPiece(h, text+"\r\n", 0x181C1F, false)
 }
 
 func sendChatFromInput() {
@@ -607,9 +670,12 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 	case WM_PAINT:
 		var ps paintStruct
 		hdc, _, _ := pBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
-		// light background (v8.8: website surface)
-		var rcFull = [4]int32{0, 0, 860, 640}
-		pFillRect.Call(hdc, uintptr(unsafe.Pointer(&rcFull)), gBgBr)
+		// light background (v8.8: website surface) — fill the real
+		// client size (v8.9.11: was hardcoded 860x640, leaving the
+		// taller window's bottom strip unpainted).
+		var crc [4]int32
+		pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&crc)))
+		pFillRect.Call(hdc, uintptr(unsafe.Pointer(&crc)), gBgBr)
 		// section cards — v8.8 layout with profile card on top
 		oldPen, _, _ := pSelectObject.Call(hdc, gCardPen)
 		oldBr, _, _ := pSelectObject.Call(hdc, gCardBr)
@@ -619,6 +685,9 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		pRoundRect.Call(hdc, 434, 208, 840, 306, 24, 24) // invite link
 		pRoundRect.Call(hdc, 434, 318, 840, 416, 24, 24) // viewers
 		pRoundRect.Call(hdc, 434, 428, 840, 526, 24, 24) // wake-up & camera
+		if gChatCardB > 0 {
+			pRoundRect.Call(hdc, 20, uintptr(gChatCardT), 840, uintptr(gChatCardB), 24, 24) // chat
+		}
 		pSelectObject.Call(hdc, oldPen)
 		pSelectObject.Call(hdc, oldBr)
 		drawViewers(hdc)
@@ -997,11 +1066,31 @@ func runGUI() {
 		return
 	}
 
+	// v8.9.11: honor the screen size — a 780px window overflows a 768p
+	// laptop screen and hides the chat card and Quit button, and a
+	// fixed (200,80) origin wastes big screens. Center the window and
+	// drop to the compact layout when the screen is short.
+	sw, _, _ := pGetSystemMetrics.Call(0)
+	sh, _, _ := pGetSystemMetrics.Call(1)
+	winH := int32(780)
+	gCompact = sh > 0 && sh < 860
+	if gCompact {
+		winH = 700
+	}
+	wx := (int32(sw) - 876) / 2
+	wy := (int32(sh) - winH) / 2
+	if wx < 0 {
+		wx = 0
+	}
+	if wy < 0 {
+		wy = 0
+	}
+
 	hwnd, _, _ := pCreateWindowExW.Call(0,
 		uintptr(unsafe.Pointer(clsName)),
 		uintptr(unsafe.Pointer(u16("SWRemote"))),
 		WS_OVERLAPPEDWINDOW&^0x00040000&^0x00080000, // no maximize box, no resize border
-		200, 80, 876, 780,
+		uintptr(wx), uintptr(wy), 876, uintptr(winH),
 		0, 0, 0, 0)
 	if hwnd == 0 {
 		return
@@ -1033,24 +1122,31 @@ func runGUI() {
 	// v8.4.0: camera health + one-click repair
 	mkCtl("STATIC", "CAMERA", 0, 454, 492, 200, 16, ctlCamLbl, gFonts["lbl"])
 	mkCtl("STATIC", "checking…", SS_LEFT, 540, 492, 280, 16, ctlCamVal, gFonts["small"])
+	// v8.9.11: chat + bottom-bar rows move up on short screens so
+	// nothing falls off the bottom; the section cards above never move.
+	chatLblY, chatLogY, chatLogH, chatInputY, bottomY := int32(528), int32(550), int32(100), int32(658), int32(700)
+	if gCompact {
+		chatLblY, chatLogY, chatLogH, chatInputY, bottomY = 520, 540, 60, 606, 640
+	}
+	gChatCardT, gChatCardB = chatLblY-8, chatInputY+34
 	// bottom bar
-	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON|BS_FLAT, 20, 700, 150, 38, ctlUpdate, gFonts["norm"])
-	mkCtl("BUTTON", "Fix camera", BS_PUSHBUTTON|BS_FLAT, 178, 700, 130, 38, ctlFixCam, gFonts["norm"])
-	mkCtl("BUTTON", "Repair Windows", BS_PUSHBUTTON|BS_FLAT, 316, 700, 140, 38, ctlRepairWin, gFonts["norm"])
-	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 434, 708, 180, 24, ctlAutoRun, gFonts["norm"])
-	mkCtl("msctls_progress32", "", 0, 620, 712, 92, 14, ctlProg, 0)
+	mkCtl("BUTTON", "Check for Updates", BS_PUSHBUTTON|BS_FLAT, 20, bottomY, 150, 38, ctlUpdate, gFonts["norm"])
+	mkCtl("BUTTON", "Fix camera", BS_PUSHBUTTON|BS_FLAT, 178, bottomY, 130, 38, ctlFixCam, gFonts["norm"])
+	mkCtl("BUTTON", "Repair Windows", BS_PUSHBUTTON|BS_FLAT, 316, bottomY, 140, 38, ctlRepairWin, gFonts["norm"])
+	mkCtl("BUTTON", "Start SWRemote with Windows", BS_AUTOCHECKBOX, 434, bottomY+8, 180, 24, ctlAutoRun, gFonts["norm"])
+	mkCtl("msctls_progress32", "", 0, 620, bottomY+12, 92, 14, ctlProg, 0)
 	pSendMessageW.Call(gCtl[ctlProg], PBM_SETRANGE32, 0, 100)
 	pShowWindow.Call(gCtl[ctlProg], 0)
-	mkCtl("BUTTON", "Quit", BS_PUSHBUTTON|BS_FLAT, 720, 700, 120, 38, ctlQuit, gFonts["norm"])
+	mkCtl("BUTTON", "Quit", BS_PUSHBUTTON|BS_FLAT, 720, bottomY, 120, 38, ctlQuit, gFonts["norm"])
 	// v8.9.10: chat card — messages from viewers land here, never in a
 	// popup; the PC user replies from the input box (Enter = Send).
-	mkCtl("STATIC", "CHAT — messages from viewers", 0, 20, 528, 300, 18, ctlChatLbl, gFonts["lbl"])
-	mkCtl("EDIT", "", WS_BORDER|ES_MULTILINE|ES_READONLY|WS_VSCROLL|ES_AUTOVSCROLL, 20, 550, 640, 100, ctlChatLog, gFonts["norm"])
-	mkCtl("EDIT", "", WS_BORDER|ES_AUTOHSCROLL, 20, 658, 540, 28, ctlChatInput, gFonts["norm"])
-	mkCtl("BUTTON", "Send", BS_DEFPUSHBUTTON|BS_FLAT, 570, 658, 90, 28, ctlChatSend, gFonts["norm"])
+	mkCtl("STATIC", "CHAT — messages from viewers", 0, 20, chatLblY, 300, 18, ctlChatLbl, gFonts["lbl"])
+	mkChatLog(20, chatLogY, 640, chatLogH)
+	mkCtl("EDIT", "", WS_BORDER|ES_AUTOHSCROLL, 20, chatInputY, 540, 28, ctlChatInput, gFonts["norm"])
+	mkCtl("BUTTON", "Send", BS_DEFPUSHBUTTON|BS_FLAT, 570, chatInputY, 90, 28, ctlChatSend, gFonts["norm"])
 
 	// v8.9.10: recording indicator (hidden until a recording runs)
-	mkCtl("STATIC", "", SS_LEFT, 680, 658, 176, 28, ctlRec, gFonts["norm"])
+	mkCtl("STATIC", "", SS_LEFT, 680, chatInputY, 176, 28, ctlRec, gFonts["norm"])
 	pShowWindow.Call(gCtl[ctlRec], 0)
 	if getAutoRun() {
 		pSendMessageW.Call(gCtl[ctlAutoRun], BM_SETCHECK, BST_CHECKED, 0)

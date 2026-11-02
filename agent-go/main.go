@@ -851,6 +851,10 @@ func runSession(cfg *Config) error {
 				sendWSJSON(map[string]any{"t": "reboot-result", "ok": true})
 				go func() { time.Sleep(500 * time.Millisecond); doPower(true) }()
 			}
+		case "sleep":
+			// v8.9.11: S3 sleep — no privilege needed, reply first
+			sendWSJSON(map[string]any{"t": "sleep-result", "ok": true})
+			go func() { time.Sleep(500 * time.Millisecond); doSleep() }()
 		case "pc-audio":
 			on := true
 			if b, ok := msg["on"].(bool); ok {
