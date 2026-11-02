@@ -641,7 +641,7 @@ func runSession(cfg *Config) error {
 			default:
 			}
 			start := time.Now()
-			img, err := captureScreen()
+			img, err := captureTimeout(2 * time.Second)
 			if err != nil || img == nil {
 				capFails++
 				// v8.9.6: capture failures used to be silent — the viewer

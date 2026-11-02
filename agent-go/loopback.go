@@ -6,6 +6,11 @@
 // mono PCM format as the mic. Session-scoped: it runs while the relay
 // session is live and sends only while the PC-sound toggle is on;
 // when off it drains silently, exactly like a muted mic.
+//
+// v8.9.12: the LOOPBACK flag was written as 0x2 — the real constant is
+// 0x00020000, so every Initialize failed with AUDCLNT_E_INVALID_STREAM_FLAG
+// (88890021) and PC sound never worked on any PC, even though the toggle
+// and the drain loop ran.
 package main
 
 import (
@@ -68,8 +73,8 @@ func loopbackLoop(stop <-chan struct{}) {
 	isFloat := tag == 3
 	log("loopback: format %dch %dHz %dbit float=%v", ch, rate, bits, isFloat)
 
-	// Initialize(SHARED, LOOPBACK=0x2, 1s buffer, 0, pwfx, NULL)
-	if hr := comCallN(ac, 3, 0, 2, 10000000, 0, pwfx, 0); hr != 0 {
+	// Initialize(SHARED, LOOPBACK=0x00020000, 1s buffer, 0, pwfx, NULL)
+	if hr := comCallN(ac, 3, 0, 0x00020000, 10000000, 0, pwfx, 0); hr != 0 {
 		log("loopback: initialize failed (%x)", hr)
 		return
 	}

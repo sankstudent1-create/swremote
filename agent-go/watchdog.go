@@ -106,6 +106,9 @@ func startWatchdog() {
 
 // restartSelf launches a fresh copy and exits this one.
 func restartSelf() {
+	// v8.9.12: finalize an active recording first — a restart used to
+	// abandon the AVI without its index, leaving it unplayable.
+	finalizeRecording()
 	// release the single-instance mutex so the new copy can start
 	if singleInstanceMutex != 0 {
 		windows.CloseHandle(windows.Handle(singleInstanceMutex))

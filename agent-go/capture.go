@@ -10,6 +10,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/jpeg"
 	"sync"
@@ -33,7 +34,46 @@ var (
 	capStopCh  chan struct{}
 )
 
-// guid builds a windows.GUID from string parts.
+// captureTimeout runs captureScreen with a deadline, single-flight: if
+// a capture is already stuck (wedged BitBlt during a display sleep/lock
+// transition), a new caller waits for that same flight instead of
+// starting another, so a wedged display can never pile up goroutines.
+// v8.9.12: the 20:24 watchdog restart happened with BOTH the recorder
+// and the screen sender wedged inside BitBlt — the loops could neither
+// send nor stop, and the restart abandoned the recording unfinalized.
+type capRes struct {
+	img *image.RGBA
+	err error
+}
+
+var (
+	capFlightMu sync.Mutex
+	capFlightCh chan capRes
+)
+
+func captureTimeout(d time.Duration) (*image.RGBA, error) {
+	capFlightMu.Lock()
+	if capFlightCh == nil {
+		capFlightCh = make(chan capRes, 1)
+		go func() {
+			img, err := captureScreen()
+			capFlightCh <- capRes{img, err}
+			capFlightMu.Lock()
+			capFlightCh = nil
+			capFlightMu.Unlock()
+		}()
+	}
+	ch := capFlightCh
+	capFlightMu.Unlock()
+	select {
+	case r := <-ch:
+		return r.img, r.err
+	case <-time.After(d):
+		return nil, errCaptureStall
+	}
+}
+
+var errCaptureStall = fmt.Errorf("capture stalled")
 func guid(d1 uint32, d2, d3 uint16, d4 [8]byte) windows.GUID {
 	return windows.GUID{Data1: d1, Data2: d2, Data3: d3, Data4: d4}
 }

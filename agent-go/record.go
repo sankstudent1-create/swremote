@@ -564,13 +564,18 @@ func (r *recorder) loop() {
 	}()
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
+	stallN := 0
 	for {
 		select {
 		case <-r.stop:
 			return
 		case <-tick.C:
-			frame, err := captureScreen()
+			frame, err := captureTimeout(2 * time.Second)
 			if err != nil {
+				stallN++
+				if stallN == 1 || stallN%50 == 0 {
+					log("record: capture stalled, frame skipped (x%d)", stallN)
+				}
 				continue
 			}
 			r.compose(frame)
@@ -602,6 +607,24 @@ func stopRecording() {
 	recMu.Unlock()
 	if r != nil {
 		r.stopOnce.Do(func() { close(r.stop) })
+	}
+}
+
+// finalizeRecording stops an active recording and waits briefly for its
+// AVI to close cleanly. Call before any process restart (update install,
+// Restart agent, watchdog hang-restart): v8.9.12 — a restart used to
+// abandon the file without its index, leaving it unplayable.
+func finalizeRecording() {
+	recMu.Lock()
+	r := recCur
+	recMu.Unlock()
+	if r == nil {
+		return
+	}
+	r.stopOnce.Do(func() { close(r.stop) })
+	select {
+	case <-r.done:
+	case <-time.After(3 * time.Second):
 	}
 }
 

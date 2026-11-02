@@ -41,22 +41,22 @@
     "#1": {
       "0000": {
         "fixed": {
-          "file_version": "8.9.11",
-          "product_version": "8.9.11"
+          "file_version": "8.9.12",
+          "product_version": "8.9.12"
         },
         "info": {
           "0409": {
             "Comments": "",
             "CompanyName": "SWInfoSystems",
             "FileDescription": "SWRemote by SWInfoSystems",
-            "FileVersion": "8.9.11",
+            "FileVersion": "8.9.12",
             "InternalName": "SWRemote-Agent",
             "LegalCopyright": "",
             "LegalTrademarks": "",
             "OriginalFilename": "SWRemote-Agent.exe",
             "PrivateBuild": "",
             "ProductName": "SWRemote",
-            "ProductVersion": "8.9.11",
+            "ProductVersion": "8.9.12",
             "SpecialBuild": ""
           }
         }
