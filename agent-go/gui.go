@@ -633,6 +633,10 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		pPostQuitMessage.Call(0)
 		return 0
 	case WM_CLOSE:
+		// v8.9.14: the X button is a clean quit too — previously only
+		// the Quit button marked it, so every X-close was reported as
+		// "did not quit cleanly" on the next start (a false alarm).
+		markQuitting()
 		pPostQuitMessage.Call(0)
 		return 0
 	case WM_CTLCOLORBTN:
@@ -1097,10 +1101,42 @@ func runGUI() {
 	// runtime is present. Otherwise it falls back to the classic GDI
 	// window, so a missing runtime can never leave the user with no
 	// window at all.
-	if runWebViewGUI() == nil {
+	// v8.9.14: both paths share ONE host window. The old code created
+	// the host, destroyed it when WebView2 setup failed (which queued
+	// a WM_QUIT), then created a second window whose message loop died
+	// instantly on that queued WM_QUIT — the window flashed and the
+	// process exited. That is what the 21:26 log shows (three 0–2s
+	// runs, no webview line). Now the fallback reuses the same window
+	// and the failure reason is logged, so the next log proves which
+	// path ran.
+	hwnd, err := createHostWindow()
+	if err != nil {
 		return
 	}
-	runGDI()
+	if err := setupWebView2(hwnd); err == nil {
+		applyStatus()
+		refreshMeta()
+		refreshWakeStatus()
+		pSetTimer.Call(hwnd, 1, 1000, 0)
+		pShowWindow.Call(hwnd, SW_SHOW)
+		pUpdateWindow.Call(hwnd)
+		var m msgT
+		for {
+			r, _, _ := pGetMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
+			if int32(r) <= 0 {
+				break
+			}
+			// NOTE: no IsDialogMessage here — it would eat the web
+			// page's Tab and Enter keys.
+			pTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
+			pDispatchMessageW.Call(uintptr(unsafe.Pointer(&m)))
+			heartbeatTick()
+		}
+		return
+	} else {
+		log("webview unavailable (%v) — using classic window", err)
+	}
+	runGDI(hwnd)
 }
 
 // createHostWindow registers the window class (tolerating an existing
@@ -1154,11 +1190,7 @@ func createHostWindow() (uintptr, error) {
 	return hwnd, nil
 }
 
-func runGDI() {
-	hwnd, err := createHostWindow()
-	if err != nil {
-		return
-	}
+func runGDI(hwnd uintptr) {
 
 	// controls (client coords) — v8.8 layout: profile card + 2x3 grid
 	// left column

@@ -18,6 +18,7 @@ GOOS=windows GOARCH=amd64 go build -ldflags "-H=windowsgui" -o SWRemote-Service.
 # v8.5: the installer embeds both exes — always pack the fresh builds
 cp -f ../agent-go/SWRemote-Agent.exe ../installer/SWRemote-Agent.exe
 cp -f SWRemote-Service.exe ../installer/SWRemote-Service.exe
+cp -f ../agent-go/WebView2Loader.dll ../installer/WebView2Loader.dll
 cd ../installer
 go-winres make --in winres/winres.json --out rsrc_windows_amd64.syso >/dev/null
 rm -f rsrc_windows_amd64.syso_windows_386.syso

@@ -276,6 +276,16 @@ const httpServer = http.createServer((req, res) => {
     });
     return fs.createReadStream(exe).pipe(res);
   }
+  if (url.pathname === "/download/webview2loader") {
+    const dll = path.join(__dirname, "..", "agent-go", "WebView2Loader.dll");
+    if (!fs.existsSync(dll)) { res.writeHead(404); return res.end("not found"); }
+    res.writeHead(200, {
+      "Content-Type": "application/octet-stream",
+      "Content-Disposition": 'attachment; filename="WebView2Loader.dll"',
+      "Content-Length": fs.statSync(dll).size,
+    });
+    return fs.createReadStream(dll).pipe(res);
+  }
   if (url.pathname === "/download/setup") {
     const exe = path.join(__dirname, "..", "installer", "SWRemote-Setup.exe");
     if (!fs.existsSync(exe)) { res.writeHead(404); return res.end("not found"); }

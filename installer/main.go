@@ -37,6 +37,9 @@ var agentExe []byte
 //go:embed SWRemote-Service.exe
 var svcExe []byte
 
+//go:embed WebView2Loader.dll
+var wvLoader []byte
+
 // ---------------------------------------------------------------------------
 // Win32 plumbing (same style as the agent)
 // ---------------------------------------------------------------------------
@@ -613,6 +616,12 @@ func doInstall() {
 	if err := writeFile(target, agentExe); err != nil {
 		finishWithError("Could not write the agent:\n" + err.Error())
 		return
+	}
+	// v8.9.14: the WebView2 loader rides with the agent (it is NOT in
+	// System32 by default). A failed loader write is only a warning —
+	// the agent still runs, just with the classic window.
+	if err := writeFile(filepath.Join(dir, "WebView2Loader.dll"), wvLoader); err != nil {
+		warnings = append(warnings, "WebView2 loader not installed — the classic window will be used.")
 	}
 	if err := writeFile(filepath.Join(dir, "SWRemote-Service.exe"), svcExe); err != nil {
 		warnings = append(warnings, "wake-up service file: "+err.Error())

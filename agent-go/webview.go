@@ -200,41 +200,6 @@ func wvResize() {
 	comCallN(wvController, 6, uintptr(unsafe.Pointer(&rc)))
 }
 
-// runWebViewGUI runs the WebView2 agent window. A nil return means the
-// window ran and closed normally; any error means "fall back to GDI".
-func runWebViewGUI() error {
-	hwnd, err := createHostWindow()
-	if err != nil {
-		return err
-	}
-	if err := setupWebView2(hwnd); err != nil {
-		pDestroyWindow.Call(hwnd)
-		gHWND = 0
-		wvController, wvCore = 0, 0
-		return err
-	}
-	applyStatus()
-	refreshMeta()
-	refreshWakeStatus()
-	pSetTimer.Call(hwnd, 1, 1000, 0)
-	pShowWindow.Call(hwnd, SW_SHOW)
-	pUpdateWindow.Call(hwnd)
-
-	var m msgT
-	for {
-		r, _, _ := pGetMessageW.Call(uintptr(unsafe.Pointer(&m)), 0, 0, 0)
-		if int32(r) <= 0 {
-			break
-		}
-		// NOTE: no IsDialogMessage here — it would eat the web page's
-		// Tab and Enter keys. The page handles its own keyboard input.
-		pTranslateMessage.Call(uintptr(unsafe.Pointer(&m)))
-		pDispatchMessageW.Call(uintptr(unsafe.Pointer(&m)))
-		heartbeatTick()
-	}
-	return nil
-}
-
 type wvViewer struct {
 	Name   string `json:"name"`
 	Avatar string `json:"avatar"`

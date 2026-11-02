@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"image"
 	"image/jpeg"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -509,6 +510,65 @@ func handleFileChunk(data []byte) {
 
 // ---------------- main ----------------
 
+// ensureWebView2Loader downloads Microsoft's WebView2Loader.dll next to
+// the exe when it is missing (v8.9.14: the loader is NOT in System32 by
+// default, so without it WebView2 setup fails and the classic window
+// runs instead). Best-effort, background, never blocks startup; the
+// next launch picks it up. Sanity-checked (MZ header, plausible size)
+// so a bad download can never plant a bogus DLL.
+func ensureWebView2Loader() {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	dll := filepath.Join(filepath.Dir(exe), "WebView2Loader.dll")
+	if _, err := os.Stat(dll); err == nil {
+		return
+	}
+	c := &http.Client{Timeout: 2 * time.Minute}
+	r, err := c.Get("https://swremote-relay.onrender.com/download/webview2loader")
+	if err != nil {
+		return
+	}
+	defer r.Body.Close()
+	if r.StatusCode != 200 {
+		return
+	}
+	tmp := dll + ".tmp"
+	f, err := os.Create(tmp)
+	if err != nil {
+		return
+	}
+	if _, err := io.Copy(f, r.Body); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return
+	}
+	f.Close()
+	fi, err := os.Stat(tmp)
+	if err != nil || fi.Size() < 50000 {
+		os.Remove(tmp)
+		return
+	}
+	head := make([]byte, 2)
+	hf, err := os.Open(tmp)
+	if err != nil {
+		os.Remove(tmp)
+		return
+	}
+	_, rerr := hf.Read(head)
+	hf.Close()
+	if rerr != nil || string(head) != "MZ" {
+		os.Remove(tmp)
+		return
+	}
+	if err := os.Rename(tmp, dll); err != nil {
+		os.Remove(tmp)
+		return
+	}
+	log("webview: WebView2Loader.dll downloaded — restart the agent for the new window")
+}
+
 func main() {
 	// v8.9.2: pin the main goroutine to the main OS thread. Without this,
 	// Go can resume the GUI goroutine on a different OS thread after a
@@ -584,6 +644,7 @@ func main() {
 	})
 
 	go autoUpdateCheck() // silent update check: 60s after start, then every 6h
+	go ensureWebView2Loader() // v8.9.14: fetch the loader DLL if missing (background)
 	runGUI()             // blocks until the window is closed
 	log("window closed, exiting")
 }
